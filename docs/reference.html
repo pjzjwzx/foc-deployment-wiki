@@ -12,17 +12,17 @@
 <body>
 <a class="skip-link" href="#article">跳到正文</a>
 <header class="masthead"><div class="masthead-inner">
-<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 00–02</span>
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
 </div></header>
 <div class="shell">
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><div class="nav-heading">课程</div><a href="index.html">首页</a><a href="00-project.html">00 工程启动</a><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a><a href="02-open-loop.html">02 电压开环部署</a><div class="nav-heading">附录</div><a href="reference.html" aria-current="page">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · STM32 部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><div class="nav-heading">附录</div><a href="reference.html" aria-current="page">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
 <header class="article-header"><span class="eyebrow">附录</span><h1>配置与验证参考</h1></header>
-<p>读完 00–02 章后，可以用本页核对 PWM、采样和启停依赖的配置。下表对应课程中的 STM32H743VIT6 示例。CubeMX 的器件项显示为 STM32H743VITx，具体接线以手中板卡为准。</p>
+<p>读完第 3 章的 3.1–3.3 后，可以用本页核对 PWM、采样和启停依赖的配置。下表对应课程中的 STM32H743VIT6 示例。CubeMX 的器件项显示为 STM32H743VITx，具体接线以手中板卡为准。</p>
 <h2 id="示例配置">示例配置</h2>
 <div class="table-wrap"><table>
 <thead>
@@ -62,12 +62,13 @@
 </tr>
 </tbody>
 </table></div>
-<h3 id="已另行取得示例工程时">已另行取得示例工程时</h3>
-<p>从包含 <code>.ioc</code>、<code>.project</code> 和 <code>.cproject</code> 的工程根目录开始。CubeMX 打开 <code>.ioc</code> 逐项核对上表，CubeIDE 导入工程根目录。<code>config/board_config.h</code> 存板级比例和方向，<code>config/motor_config.h</code> 存电机参数和限值，<code>config/lab_config.h</code> 存实验阶段、节拍和超时。LAB1 对应 <code>LAB_PWM_SVPWM</code>，LAB2 对应 <code>LAB_OPEN_LOOP</code>。保存设置后重新构建，再核对 ELF 的路径和时间。</p>
+<p><span id="已另行取得示例工程时"></span></p>
+<h3 id="打开配套示例工程">打开配套示例工程</h3>
+<p>按 <a href="00-project.html#软件操作手册">3.1 软件操作手册</a> 取得 <code>chapter-3</code>，从包含 <code>.ioc</code>、<code>.project</code> 和 <code>.cproject</code> 的工程根目录开始。CubeMX 打开 <code>.ioc</code> 逐项核对上表，CubeIDE 导入工程根目录。<code>config/board_config.h</code> 存板级比例和方向，<code>config/motor_config.h</code> 存电机参数和限值，<code>config/lab_config.h</code> 存实验阶段、节拍和超时。LAB1 对应 <code>LAB_PWM_SVPWM</code>，LAB2 对应 <code>LAB_OPEN_LOOP</code>。保存设置后重新构建，再核对 ELF 的路径和时间。</p>
 <p>有配套构建脚本和 ARM GCC 时，也可在工程根目录单独构建 LAB2。下面的命令输出 <code>build/lab2/FOC_Arclab_H743_V3.elf</code>。</p>
 <pre><code class="language-powershell">python tools/build.py --stage 2 --output build/lab2
 </code></pre>
-<p>只预览启停顺序时运行下面一条。它打印停机、申请 Open、持续给定、再次停机四步。按第 02 章确认板卡、空载、限流、状态回读和直接切断功率的条件后，再选择实际适配器和发送选项。</p>
+<p>只预览启停顺序时运行下面一条。它打印停机、申请 Open、持续给定、再次停机四步。按 3.3 确认板卡、空载、限流、状态回读和直接切断功率的条件后，再选择实际适配器和发送选项。</p>
 <pre><code class="language-powershell">python tools/can_demo.py open --electrical-speed 10 --vq 0.2 --duration 2
 </code></pre>
 <h2 id="换用其他-stm32">换用其他 STM32</h2>
@@ -103,47 +104,64 @@
 </table></div>
 <p><strong>已知通信时序问题。</strong> 在电脑的应用测试中，若后台在 ADC 触发后、回调执行前接受有效 CAN 命令，回调可能用较早的触发参考时间减去较新的命令时间。无符号差值回绕会误报 CAN 超时（故障位 <code>0x08</code>）并关桥。这个顺序已用模拟板级接口复现，实板上是否遇到仍待验证。</p>
 <h2 id="后续课程">后续课程</h2>
-<p>当前公开章节带你走到电压开环。后续主题可按控制信号的流向衔接。</p>
+<p>第 3 章规划 11 节。已公开的 <a href="index.html#开始学习">3.1–3.3</a> 带你走到电压开环。下面 8 节列出后续的学习顺序。</p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
-<th>章节</th>
+<th>节</th>
+<th>主题</th>
 <th>将补上的环节</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>03–04 电流、角度与采样</td>
-<td>从 ADC 计数和编码器帧得到反馈，理解触发、中断、三相帧和电零点。</td>
+<td>3.4</td>
+<td>电流与角度传感器</td>
+<td>从 ADC 计数和编码器帧得到反馈。</td>
 </tr>
 <tr>
-<td>05–06 坐标变换与电流 PI</td>
-<td>用实际反馈电角核对 Clarke/Park，再将电流误差转换为 dq 电压和 PWM。</td>
+<td>3.5</td>
+<td>采样、中断与电零点</td>
+<td>从 PWM 触发追到三相数据汇合、中断计算和电零点标定。</td>
 </tr>
 <tr>
-<td>06A 软件分层</td>
-<td>沿一条电流命令与一次过流停机区分协议、应用、算法和板级接口。</td>
+<td>3.6</td>
+<td>坐标变换与开环验算</td>
+<td>保持电压开环，用实际反馈核对 Clarke 和 Park。</td>
 </tr>
 <tr>
-<td>07 速度闭环</td>
-<td>从角度差分得到速度，让速度 PI 产生内环的 Iq 目标。</td>
+<td>3.7</td>
+<td>PI 电流闭环</td>
+<td>让电流误差经过 PI、限幅和 SVPWM 更新 PWM。</td>
 </tr>
 <tr>
-<td>08 CAN MIT</td>
-<td>理解数据帧、输出轴单位，以及 MIT 目标如何换算成电流参考。</td>
+<td>3.8</td>
+<td>从一拍控制理解软件分层</td>
+<td>沿电流命令和过流停机区分协议、应用、算法和板级接口。</td>
 </tr>
 <tr>
-<td>09 开环 LUT 标定</td>
-<td>用开环采样建立角度修正表，核对应用修正和掉电保存。</td>
+<td>3.9</td>
+<td>速度估计与速度闭环</td>
+<td>从角度差分得到速度，让速度 PI 产生 Iq 目标。</td>
+</tr>
+<tr>
+<td>3.10</td>
+<td>CAN MIT</td>
+<td>看懂报文、输出轴单位及力矩到电流的转换。</td>
+</tr>
+<tr>
+<td>3.11</td>
+<td>开环 LUT 标定</td>
+<td>用开环采样建立角度修正表，验证运行时修正和掉电保存。</td>
 </tr>
 </tbody>
 </table></div>
-<div class="pager"><a href="02-open-loop.html"><small>上一页</small>02 电压开环部署</a></div>
+<div class="pager"><a href="02-open-loop.html"><small>上一页</small>3.3 电压开环部署</a></div>
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>
 <li><a href="#示例配置">示例配置</a><ul>
-<li><a href="#已另行取得示例工程时">已另行取得示例工程时</a></li>
+<li><a href="#打开配套示例工程">打开配套示例工程</a></li>
 </ul>
 </li>
 <li><a href="#换用其他-stm32">换用其他 STM32</a></li>

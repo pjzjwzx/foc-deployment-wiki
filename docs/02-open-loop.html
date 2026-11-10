@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
-<title>02 第一次实际部署电压开环 · FOC 部署 Wiki</title>
+<title>3.3 第一次实际部署电压开环 · FOC 部署 Wiki</title>
 <link rel="stylesheet" href="assets/wiki.css">
 <script src="assets/search-index.js" defer></script>
 <script src="assets/wiki.js" defer></script>
@@ -12,17 +12,17 @@
 <body>
 <a class="skip-link" href="#article">跳到正文</a>
 <header class="masthead"><div class="masthead-inner">
-<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 00–02</span>
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
 </div></header>
 <div class="shell">
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><div class="nav-heading">课程</div><a href="index.html">首页</a><a href="00-project.html">00 工程启动</a><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a><a href="02-open-loop.html" aria-current="page">02 电压开环部署</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · STM32 部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html" aria-current="page">3.3 电压开环部署</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
-<header class="article-header"><span class="eyebrow">第 02 章</span><h1>02 第一次实际部署电压开环</h1></header>
-<p><a href="01-pwm-svpwm.html">上一章 PWM 与 SVPWM</a> · <a href="reference.html#后续课程">后续课程</a></p>
+<header class="article-header"><span class="eyebrow">第 3 章 · 3.3</span><h1>3.3 第一次实际部署电压开环</h1></header>
+<p><a href="01-pwm-svpwm.html">上一节 3.2 PWM 与 SVPWM</a> · <a href="reference.html#后续课程">后续课程</a></p>
 <p>这一章把 Simulink 里的电压开环接到实物。你会沿同一条通路找到模型信号、C 变量和板上输出，然后构建 LAB2，下载到板上，用小幅 Vq 给定完成一次短时开环和停机。手边没有板时，可以沿现有模型波形读代码，并对照本页的离线输出。实机下载与试转待验证。</p>
 <h2 id="将模型里的给定电角接到-svpwm">将模型里的给定电角接到 SVPWM</h2>
 <p>在模型里，从给定电角速度出发，每个控制周期将角度加上 <code>ωe × dt</code>，再把角度折回一圈。给定电角与 <code>Vd/Vq</code> 进入逆 Park，所得 <code>vα/vβ</code> 接到 SVPWM。打开固件的 <code>APP_OPEN</code> 分支，先按这条信号线往下读。 <a href="source.html#app-motor-app-c-l519">开环分支</a></p>
@@ -35,7 +35,7 @@
 }
 </code></pre>
 <p>第一条赋值把电角速度乘以控制周期，再加到旧的 <code>open_angle</code>。本工程每 50 μs 计算一次。用本章命令里的 10 rad/s 估算，每拍加约 0.0005 rad。实际 CAN 给定经量化会略有出入。<code>Foc_WrapTwoPi</code> 把新角折回 <code>[0, 2π)</code>，所以波形越过一圈时会回到接近 0 的值。电角速度为负时，给定角沿反方向走。这里的速度描述电压场转得多快，转子实际能否跟随还要观察。 <a href="source.html#control-foc-c-l20">折回函数</a> · <a href="source.html#config-lab-config-h">控制周期定义</a></p>
-<p>第二句把新角交给第 01 章读过的 <code>Foc_VoltageStep</code>。本例 <code>Vd=0</code>，<code>Vq</code> 取最新目标。函数仍按原来的顺序限幅，用逆 Park 得到 <code>vα/vβ</code>，再用 SVPWM 算三相 duty。结果写入 <code>foc</code>，成功或失败通过返回值交给本拍的 <code>ok</code>。回到应用后，继续走 PWM 提交判断。 <a href="source.html#control-foc-c-l108">电压到 duty</a> · <a href="source.html#app-motor-app-c-l548">返回后的提交</a></p>
+<p>第二句把新角交给3.2 读过的 <code>Foc_VoltageStep</code>。本例 <code>Vd=0</code>，<code>Vq</code> 取最新目标。函数仍按原来的顺序限幅，用逆 Park 得到 <code>vα/vβ</code>，再用 SVPWM 算三相 duty。结果写入 <code>foc</code>，成功或失败通过返回值交给本拍的 <code>ok</code>。回到应用后，继续走 PWM 提交判断。 <a href="source.html#control-foc-c-l108">电压到 duty</a> · <a href="source.html#app-motor-app-c-l548">返回后的提交</a></p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -74,7 +74,7 @@
 </table></div>
 <p>LAB1 和 LAB2 用的是同一套逆 Park 与 SVPWM。LAB1 的观察分支每秒推进一圈电角，用固定 <code>Vd=0 V</code>、<code>Vq=1 V</code> 和名义母线 24 V 算 duty。它将功率驱动使能保持为低，只让 MCU 引脚有 PWM。LAB2 开放 <code>APP_OPEN</code>，电角速度和 Vq 由运行时命令给出，母线来自实际采样，duty 经受保护的提交路径才能送给已使能的驱动。两个阶段的载波仍是 20 kHz。 <a href="source.html#app-motor-app-c-l498">LAB1 与 Open 分支</a> · <a href="source.html#bsp-board-c-l118">观察与运行提交</a></p>
 <h2 id="从停机到允许开环">从停机到允许开环</h2>
-<p><code>LAB_STAGE</code> 是构建时的能力选择。设为 LAB2 后，固件上电先采集电流零偏，随后停在 <code>APP_DISABLED</code>（2）。电脑先请求 <code>APP_OPEN</code>（3），板上接受后才持续接收电角速度和 Vq。状态与数据帧的详细格式留到 <a href="reference.html#后续课程">第 08 章</a>。</p>
+<p><code>LAB_STAGE</code> 是构建时的能力选择。设为 LAB2 后，固件上电先采集电流零偏，随后停在 <code>APP_DISABLED</code>（2）。电脑先请求 <code>APP_OPEN</code>（3），板上接受后才持续接收电角速度和 Vq。状态与数据帧的详细格式留到后续的 CAN 专题。 <a href="reference.html#后续课程">后续课程</a></p>
 <p><strong>执行示意</strong>。阶段仍是 LAB2，箭头只表示运行状态的改变。</p>
 <pre><code class="language-text">上电 → 采集电流零偏 → Disabled（2）
                           │
@@ -103,7 +103,7 @@ if (!Board_EnableDriver())
 </code></pre>
 <ol>
 <li>编码器须累计 25 个有效样本、当前角有效，且最近样本年龄不超过 10 ms。Open 的旋转电压使用给定角，编码器仍负责健康检查和运行保护。</li>
-<li><code>target != APP_OPEN</code> 在本次请求中为假，所以首次开环可留到第 04 章再标电零点。</li>
+<li><code>target != APP_OPEN</code> 在本次请求中为假，所以首次开环可在后续标定专题再标电零点。</li>
 <li>母线值无效或小于 2 V 时拒绝启动。2 V 是这份程序的拒绝门槛。实际供电要按实板和电机的额定条件。</li>
 <li><code>Board_EnableDriver</code> 负责准备功率驱动并确认就绪，失败会记录驱动故障。通过后应用在短临界区复查状态和故障，清旧目标、记录命令时间，并将状态改为 Open。 <a href="source.html#bsp-board-h">板级接口</a> · <a href="source.html#app-motor-app-c-l150">状态发布</a></li>
 </ol>
@@ -114,7 +114,7 @@ if (!Board_EnableDriver())
 </code></pre>
 <p>状态仍在运行且 <code>ok</code> 为真时，<code>Board_ApplyDutyIsr</code> 检查占空比、驱动是否启用、故障输入和定时器提交窗口。<code>Board_DriverFault</code> 读板级故障输入。板级返回成功，应用接着记录诊断。计算失败时，<code>!ok</code> 已经为真，右边的提交函数不会调用。提交失败也走同一个故障处理，经 <code>Board_StopIsr</code> 关闭 PWM 总输出和驱动使能。母线异常、运行中编码器失效、过流以及运动命令超时也会关桥。该工程的通信超时阈值为 100 ms。 <a href="source.html#bsp-board-c-l118">提交检查</a> · <a href="source.html#bsp-board-c-l69">关断入口</a> · <a href="source.html#app-motor-app-c-l479">本拍的保护判断</a></p>
 <h2 id="构建-lab2-并找到本次-elf">构建 LAB2 并找到本次 ELF</h2>
-<p>以下构建、下载和 CAN 步骤适用于已经另行取得配套工程的读者。本节以 STM32H743 示例板、CubeIDE 2.0.0 和 ST-LINK 为例。用其他板时，先按板卡资料核对下载接口、供电和驱动允许条件。工程尚未导入时，先按 <a href="00-project.html#软件操作手册">第 00 章软件操作手册</a> 打开已解压的工程。只切换实验阶段时直接构建现有工程。</p>
+<p>以下构建、下载和 CAN 步骤使用固定标签 <code>chapter-3</code>。 <a href="https://github.com/pjzjwzx/foc-stm32-example">示例工程</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/archive/refs/tags/chapter-3.zip">下载 chapter-3 ZIP</a>本节以 STM32H743 示例板、CubeIDE 2.0.0 和 ST-LINK 为例。用其他板时，先按板卡资料核对下载接口、供电和驱动允许条件。工程尚未导入时，先按 <a href="00-project.html#软件操作手册">3.1 软件操作手册</a> 打开已解压的工程。只切换实验阶段时直接构建现有工程。</p>
 <ol>
 <li>在 CubeIDE 的 <strong>Project Explorer</strong> 展开 <code>config/lab_config.h</code>。找到 <code>#ifndef LAB_STAGE</code> 下面指定 <code>LAB_STAGE</code> 的一行，将它改成 <code>#define LAB_STAGE LAB_OPEN_LOOP</code>，按 <strong>Ctrl+S</strong> 保存。保留各阶段的编号定义。</li>
 <li>右键工程，选 <strong>Build Configurations → Set Active → Release</strong>，再选 <strong>Build Project</strong>。看 <strong>Console</strong> 最后一段，确认生成 <code>FOC_Arclab_H743_V3.elf</code>，且构建报告 0 errors。若失败，从第一条具体报错定位。 <a href="00-project.html#首次构建">首次构建与排错</a></li>
@@ -170,7 +170,7 @@ if (!Board_EnableDriver())
 <ol>
 <li>按板卡资料将 UART4 TX（本板 PB9）接到电平匹配的 USB 转串口适配器 RX，并接好参考地。这里的串口接收遥测，CAN 适配器负责启停。</li>
 <li>打开支持 <strong>JustFloat</strong> 的波形工具，选插入串口适配器后出现的端口。设 <strong>1000000 baud、8 数据位、无校验、1 停止位、无流控</strong>，选择 <strong>JustFloat</strong> 解码并开始接收。二进制数据在普通文本终端里会显示为乱码。</li>
-<li>LAB2 的 ch0–ch2 是三相电流（A），ch3 是归一化机械角，ch4 是反馈电角，ch5 是给定电角，三个角的单位均为 rad。用 ch5 看命令推进的角。ch4 依赖反馈的有效角度基准，第 04 章建立电零点后再用它判断坐标是否对齐。 <a href="reference.html#示例配置">遥测通道</a> · <a href="source.html#app-motor-app-c-l414">发布位置</a></li>
+<li>LAB2 的 ch0–ch2 是三相电流（A），ch3 是归一化机械角，ch4 是反馈电角，ch5 是给定电角，三个角的单位均为 rad。用 ch5 看命令推进的角。ch4 依赖反馈的有效角度基准，等后续标定建立电零点，再用它判断坐标是否对齐。 <a href="reference.html#示例配置">遥测通道</a> · <a href="source.html#app-motor-app-c-l414">发布位置</a></li>
 </ol>
 <h3 id="开环记录">开环记录</h3>
 <p>在这次短时运行中记录以下几项。</p>
@@ -179,8 +179,8 @@ if (!Board_EnableDriver())
 <li><strong>三相 PWM。</strong> 用板卡允许的低压参考接法，在 MCU 的 PA8、PA9、PA10 观察三路 PWM。相邻同向边沿的间隔应约 50 μs，脉宽的慢变化跟随给定电角。将三路的相序与模型里的三相 duty 对起来。本次测的是 MCU 逻辑引脚的波形。 <a href="01-pwm-svpwm.html">PWM 极性和 CCR</a> · <a href="reference.html#示例配置">本板引脚</a></li>
 <li><strong>实际转向与退出。</strong> 记录轴是否跟随、转向、限流电源读数和停止回读。低电压时可能出现给定角和 duty 都正常而电机没有克服静摩擦的情况。先区分模型给定、MCU 输出、驱动使能和机械响应，再决定检查哪一环。停机确认后断开功率，再做接线或设置调整。</li>
 </ul>
-<p>本章结束时保留同一条轨迹的模型电角、duty 与实物观察记录。没有板时，在记录里区分模型预测与待测项。下一章沿这次开环已经采集的电流和角度，查它们从板上读数怎样变成模型能用的反馈。 <a href="reference.html#后续课程">后续课程</a></p>
-<div class="pager"><a href="01-pwm-svpwm.html"><small>上一页</small>01 PWM 与 SVPWM</a><a href="reference.html"><small>下一页</small>配置与验证参考</a></div>
+<p>本章结束时保留同一条轨迹的模型电角、duty 与实物观察记录。没有板时，在记录里区分模型预测与待测项。后续会沿这次开环采集的电流和角度，查它们怎样从板上读数变成模型能用的反馈。 <a href="reference.html#后续课程">后续课程</a></p>
+<div class="pager"><a href="01-pwm-svpwm.html"><small>上一页</small>3.2 PWM 与 SVPWM</a><a href="reference.html"><small>下一页</small>配置与验证参考</a></div>
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>

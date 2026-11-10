@@ -1,6 +1,6 @@
-# 00　看懂工程怎样启动
+# 3.1 看懂工程怎样启动
 
-[课程首页](index.md) · [软件操作手册](#软件操作手册) · [下一章 从 Simulink 占空比到 STM32 PWM](01-pwm-svpwm.md)
+[课程首页](index.md) · [软件操作手册](#软件操作手册) · [下一节 3.2 从 Simulink 占空比到 STM32 PWM](01-pwm-svpwm.md)
 
 在 Simulink 里，控制模型按设定步长更新。把它部署到 STM32 时，程序先要配置时钟、引脚和外设，再启动采样与输出。这一页沿 H743 示例的 `main()` 找到两段代码接上的地方。
 
@@ -21,7 +21,7 @@ int main(void)
 
 `int main(void)` 定义入口函数，`int` 声明整数返回类型，`void` 表示它不接收参数。芯片的启动代码准备好 C 运行环境后进入这个函数。花括号内的 `名字()` 是调用，执行完函数会回到下一行。上面省略了生成器的注释，摘录到 TIM1 为止。 [启动入口](source.md#core-src-main-c-l73)
 
-前两句配置内存访问规则与指令缓存。`HAL_Init()` 准备 ST 的硬件访问库。时钟配置完成后，`MX_…_Init()` 依次配置引脚、DMA 数据搬运和定时器等外设。CubeMX 根据 `.ioc` 生成这些设置。下一章从 `MX_TIM1_Init()` 跳进定时器的定义。 [CubeMX 示例参数摘录](reference.md#示例配置) · [TIM1 初始化](source.md#core-src-tim-c-l30)
+前两句配置内存访问规则与指令缓存。`HAL_Init()` 准备 ST 的硬件访问库。时钟配置完成后，`MX_…_Init()` 依次配置引脚、DMA 数据搬运和定时器等外设。CubeMX 根据 `.ioc` 生成这些设置。3.2 从 `MX_TIM1_Init()` 跳进定时器的定义。 [CubeMX 示例参数摘录](reference.md#示例配置) · [TIM1 初始化](source.md#core-src-tim-c-l30)
 
 **源码摘录 2｜外设配置结束后的手写启动调用**
 
@@ -50,15 +50,15 @@ int main(void)
   /* USER CODE END 3 */
 ~~~
 
-`while (1)` 的条件始终成立，`MotorApp_Background()` 每次返回后便开始下一次循环，继续处理通信与维护。控制计算的采样节拍会在 04 章沿中断入口解释。 [后台调用处](source.md#core-src-main-c-l133) · [后台函数](source.md#app-motor-app-c-l575)
+`while (1)` 的条件始终成立，`MotorApp_Background()` 每次返回后便开始下一次循环，继续处理通信与维护。控制计算的采样节拍会在后续采样与中断专题解释。 [后台调用处](source.md#core-src-main-c-l133) · [后台函数](source.md#app-motor-app-c-l575)
 
-`USER CODE BEGIN` 和 `END` 是 CubeMX 用来识别保留区域的注释。上面的后台调用位于 `USER CODE 3` 区域，三个手写启动调用位于前面的 `USER CODE 2`。开启 **Keep User Code when re-generating** 后，重新生成会保留这些区域中的代码。这些调用的定义维护在 `bsp/` 和 `app/`，控制算法另放在 `control/`。读完电流环后，06A 章会把各目录的职责串起来。 [启动保留区域](source.md#core-src-main-c-l118) · [副本再生成步骤](#在副本重新生成) · [06A 软件分层](reference.md#后续课程)
+`USER CODE BEGIN` 和 `END` 是 CubeMX 用来识别保留区域的注释。上面的后台调用位于 `USER CODE 3` 区域，三个手写启动调用位于前面的 `USER CODE 2`。开启 **Keep User Code when re-generating** 后，重新生成会保留这些区域中的代码。这些调用的定义维护在 `bsp/` 和 `app/`，控制算法另放在 `control/`。读完电流环后，后续的软件分层专题会把各目录的职责串起来。 [启动保留区域](source.md#core-src-main-c-l118) · [副本再生成步骤](#在副本重新生成) · [后续课程](reference.md#后续课程)
 
-[继续读 01 章的 TIM1 和三相 PWM](01-pwm-svpwm.md)
+[继续读 3.2 的 TIM1 和三相 PWM](01-pwm-svpwm.md)
 
 ## 软件操作手册
 
-已经另行取得配套工程时，可以按下面的步骤打开、构建或重新生成。在线版提供教学摘录和配置对照。 [首次构建](#首次构建) · [在副本重新生成](#在副本重新生成)
+下面按固定版本 `chapter-3` 打开、构建或重新生成。在线版提供教学摘录和配置对照。 [示例工程](https://github.com/pjzjwzx/foc-stm32-example) · [下载 chapter-3 ZIP](https://github.com/pjzjwzx/foc-stm32-example/archive/refs/tags/chapter-3.zip) [首次构建](#首次构建) · [在副本重新生成](#在副本重新生成)
 
 ### 1　准备工具和文件
 
@@ -69,7 +69,7 @@ MCU 是板上执行程序的芯片。这套工程的 MCU 是 **STM32H743VIT6**�
 | STM32CubeMX | 下载 Windows 版 STM32CubeMX，解压后运行安装程序。本章参考 6.16.1 | 看芯片、引脚、时钟和外设设置，选做生成 C 初始化代码 |
 | STM32CubeIDE | 下载 Windows 版 STM32CubeIDE 并安装。本章参考 2.0.0，首次构建使用 IDE 自带的 ARM GCC | 找到和阅读 C 文件，构建固件 |
 | STM32CubeH7 V1.12.1 | 在 CubeMX 打开固件包管理器，核对 H7 的版本和安装状态 | 按原配置重新生成代码时使用 |
-| 教程配套工程 | 使用另行取得的、与教程版本匹配的工程压缩包。右键选 **全部解压缩**，进入解压后的目录 | CubeMX 与 CubeIDE 都指向这份工程 |
+| 教程配套工程 | 下载本节上方的固定版本 ZIP。右键选 **全部解压缩**，进入解压后的目录 | CubeMX 与 CubeIDE 都指向这份工程 |
 
 [STM32CubeMX 下载](https://www.st.com/en/development-tools/stm32cubemx.html) · [STM32CubeIDE 下载](https://www.st.com/en/development-tools/stm32cubeide.html) · [STM32CubeH7 固件包说明](https://www.st.com/en/embedded-software/stm32cubeh7.html)
 
@@ -78,13 +78,13 @@ MCU 是板上执行程序的芯片。这套工程的 MCU 是 **STM32H743VIT6**�
 **认出工程根目录。** 在资源管理器打开解压后的文件夹，启用 **查看 → 显示 → 文件扩展名**。如果外层只有另一个同名文件夹，再进去一层。看到下面这些项目时，就到了后面要选的目录。
 
 ~~~text
-FOC_Arclab_H743_Engineering/
+foc-stm32-example-chapter-3/
 ├── FOC_Arclab_H743_V3.ioc
 ├── .project
 ├── .cproject
 ├── Core/
 ├── config/
-└── docs/
+└── tools/
 ~~~
 
 | 文件或目录 | 现在只需知道 |
@@ -138,7 +138,7 @@ htim1.Init.CounterMode = TIM_COUNTERMODE_CENTERALIGNED3;
 
 - 左侧的 htim1 是存放 TIM1 设置的对象。点号依次进入 Init，再找到其中的 CounterMode。
 - 等号把右边的值写进左边。右侧的长名字表示中心对齐模式 3，和界面上核对的选项对应。
-- 句末的分号表示这一条 C 语句结束。初始化函数会把这些设置应用到定时器。下一章会继续追它怎样决定 PWM 周期。
+- 句末的分号表示这一条 C 语句结束。初始化函数会把这些设置应用到定时器。3.2 会继续追它怎样决定 PWM 周期。
 
 这就是本课程使用 CubeMX 的方法。先找选项，再找生成的 C，随后观察这句对整个信号路径有什么影响。第一次打开时使用现有值即可继续。
 
@@ -216,7 +216,7 @@ Finished building target: FOC_Arclab_H743_V3.elf
 Build Finished. 0 errors, 0 warnings.
 ~~~
 
-ELF 是电脑上的构建产物，里面包含程序和调试所需的符号。找到本次生成的 ELF 就完成了首次构建。下一章用生成代码读 PWM，第 02 章再按本手册的构建方法准备并下载 LAB2。
+ELF 是电脑上的构建产物，里面包含程序和调试所需的符号。找到本次生成的 ELF 就完成了首次构建。3.2 用生成代码读 PWM，3.3 再按本手册的构建方法准备并下载 LAB2。
 
 #### 4.3 构建报错时，从第一条开始
 
@@ -253,4 +253,4 @@ CubeMX 的 TIM1 Counter Mode 应为中心对齐模式 3，`tim.c` 中可找到�
 
 本文以同一份 20 kHz 教学工程为例，使用 STM32H743 电机驱动板与角度编码器。源码定位索引记录了与本课对应的文件及行号。 [源码定位](source.md)
 
-[课程首页](index.md) · [下一章 PWM 与 SVPWM](01-pwm-svpwm.md)
+[课程首页](index.md) · [下一节 3.2 PWM 与 SVPWM](01-pwm-svpwm.md)

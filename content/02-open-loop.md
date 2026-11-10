@@ -1,6 +1,6 @@
-# 02 第一次实际部署电压开环
+# 3.3 第一次实际部署电压开环
 
-[上一章 PWM 与 SVPWM](01-pwm-svpwm.md) · [后续课程](reference.md#后续课程)
+[上一节 3.2 PWM 与 SVPWM](01-pwm-svpwm.md) · [后续课程](reference.md#后续课程)
 
 这一章把 Simulink 里的电压开环接到实物。你会沿同一条通路找到模型信号、C 变量和板上输出，然后构建 LAB2，下载到板上，用小幅 Vq 给定完成一次短时开环和停机。手边没有板时，可以沿现有模型波形读代码，并对照本页的离线输出。实机下载与试转待验证。
 
@@ -21,7 +21,7 @@ else if (state == APP_OPEN)
 
 第一条赋值把电角速度乘以控制周期，再加到旧的 `open_angle`。本工程每 50 μs 计算一次。用本章命令里的 10 rad/s 估算，每拍加约 0.0005 rad。实际 CAN 给定经量化会略有出入。`Foc_WrapTwoPi` 把新角折回 `[0, 2π)`，所以波形越过一圈时会回到接近 0 的值。电角速度为负时，给定角沿反方向走。这里的速度描述电压场转得多快，转子实际能否跟随还要观察。 [折回函数](source.md#control-foc-c-l20) · [控制周期定义](source.md#config-lab-config-h)
 
-第二句把新角交给第 01 章读过的 `Foc_VoltageStep`。本例 `Vd=0`，`Vq` 取最新目标。函数仍按原来的顺序限幅，用逆 Park 得到 `vα/vβ`，再用 SVPWM 算三相 duty。结果写入 `foc`，成功或失败通过返回值交给本拍的 `ok`。回到应用后，继续走 PWM 提交判断。 [电压到 duty](source.md#control-foc-c-l108) · [返回后的提交](source.md#app-motor-app-c-l548)
+第二句把新角交给3.2 读过的 `Foc_VoltageStep`。本例 `Vd=0`，`Vq` 取最新目标。函数仍按原来的顺序限幅，用逆 Park 得到 `vα/vβ`，再用 SVPWM 算三相 duty。结果写入 `foc`，成功或失败通过返回值交给本拍的 `ok`。回到应用后，继续走 PWM 提交判断。 [电压到 duty](source.md#control-foc-c-l108) · [返回后的提交](source.md#app-motor-app-c-l548)
 
 | 模型里的信号 | 在固件中找哪里 | 本章用什么核对 |
 |---|---|---|
@@ -35,7 +35,7 @@ LAB1 和 LAB2 用的是同一套逆 Park 与 SVPWM。LAB1 的观察分支每秒�
 
 ## 从停机到允许开环
 
-`LAB_STAGE` 是构建时的能力选择。设为 LAB2 后，固件上电先采集电流零偏，随后停在 `APP_DISABLED`（2）。电脑先请求 `APP_OPEN`（3），板上接受后才持续接收电角速度和 Vq。状态与数据帧的详细格式留到 [第 08 章](reference.md#后续课程)。
+`LAB_STAGE` 是构建时的能力选择。设为 LAB2 后，固件上电先采集电流零偏，随后停在 `APP_DISABLED`（2）。电脑先请求 `APP_OPEN`（3），板上接受后才持续接收电角速度和 Vq。状态与数据帧的详细格式留到后续的 CAN 专题。 [后续课程](reference.md#后续课程)
 
 **执行示意**。阶段仍是 LAB2，箭头只表示运行状态的改变。
 
@@ -71,7 +71,7 @@ if (!Board_EnableDriver())
 ```
 
 1. 编码器须累计 25 个有效样本、当前角有效，且最近样本年龄不超过 10 ms。Open 的旋转电压使用给定角，编码器仍负责健康检查和运行保护。
-2. `target != APP_OPEN` 在本次请求中为假，所以首次开环可留到第 04 章再标电零点。
+2. `target != APP_OPEN` 在本次请求中为假，所以首次开环可在后续标定专题再标电零点。
 3. 母线值无效或小于 2 V 时拒绝启动。2 V 是这份程序的拒绝门槛。实际供电要按实板和电机的额定条件。
 4. `Board_EnableDriver` 负责准备功率驱动并确认就绪，失败会记录驱动故障。通过后应用在短临界区复查状态和故障，清旧目标、记录命令时间，并将状态改为 Open。 [板级接口](source.md#bsp-board-h) · [状态发布](source.md#app-motor-app-c-l150)
 
@@ -88,7 +88,7 @@ if (running() && (!ok || !Board_ApplyDutyIsr(foc.duty)))
 
 ## 构建 LAB2 并找到本次 ELF
 
-以下构建、下载和 CAN 步骤适用于已经另行取得配套工程的读者。本节以 STM32H743 示例板、CubeIDE 2.0.0 和 ST-LINK 为例。用其他板时，先按板卡资料核对下载接口、供电和驱动允许条件。工程尚未导入时，先按 [第 00 章软件操作手册](00-project.md#软件操作手册) 打开已解压的工程。只切换实验阶段时直接构建现有工程。
+以下构建、下载和 CAN 步骤使用固定标签 `chapter-3`。 [示例工程](https://github.com/pjzjwzx/foc-stm32-example) · [下载 chapter-3 ZIP](https://github.com/pjzjwzx/foc-stm32-example/archive/refs/tags/chapter-3.zip)本节以 STM32H743 示例板、CubeIDE 2.0.0 和 ST-LINK 为例。用其他板时，先按板卡资料核对下载接口、供电和驱动允许条件。工程尚未导入时，先按 [3.1 软件操作手册](00-project.md#软件操作手册) 打开已解压的工程。只切换实验阶段时直接构建现有工程。
 
 1. 在 CubeIDE 的 **Project Explorer** 展开 `config/lab_config.h`。找到 `#ifndef LAB_STAGE` 下面指定 `LAB_STAGE` 的一行，将它改成 `#define LAB_STAGE LAB_OPEN_LOOP`，按 **Ctrl+S** 保存。保留各阶段的编号定义。
 2. 右键工程，选 **Build Configurations → Set Active → Release**，再选 **Build Project**。看 **Console** 最后一段，确认生成 `FOC_Arclab_H743_V3.elf`，且构建报告 0 errors。若失败，从第一条具体报错定位。 [首次构建与排错](00-project.md#首次构建)
@@ -151,7 +151,7 @@ python tools/can_demo.py open --electrical-speed 10 --vq 0.2 --duration 2
 
 1. 按板卡资料将 UART4 TX（本板 PB9）接到电平匹配的 USB 转串口适配器 RX，并接好参考地。这里的串口接收遥测，CAN 适配器负责启停。
 2. 打开支持 **JustFloat** 的波形工具，选插入串口适配器后出现的端口。设 **1000000 baud、8 数据位、无校验、1 停止位、无流控**，选择 **JustFloat** 解码并开始接收。二进制数据在普通文本终端里会显示为乱码。
-3. LAB2 的 ch0–ch2 是三相电流（A），ch3 是归一化机械角，ch4 是反馈电角，ch5 是给定电角，三个角的单位均为 rad。用 ch5 看命令推进的角。ch4 依赖反馈的有效角度基准，第 04 章建立电零点后再用它判断坐标是否对齐。 [遥测通道](reference.md#示例配置) · [发布位置](source.md#app-motor-app-c-l414)
+3. LAB2 的 ch0–ch2 是三相电流（A），ch3 是归一化机械角，ch4 是反馈电角，ch5 是给定电角，三个角的单位均为 rad。用 ch5 看命令推进的角。ch4 依赖反馈的有效角度基准，等后续标定建立电零点，再用它判断坐标是否对齐。 [遥测通道](reference.md#示例配置) · [发布位置](source.md#app-motor-app-c-l414)
 
 ### 开环记录
 
@@ -161,4 +161,4 @@ python tools/can_demo.py open --electrical-speed 10 --vq 0.2 --duration 2
 - **三相 PWM。** 用板卡允许的低压参考接法，在 MCU 的 PA8、PA9、PA10 观察三路 PWM。相邻同向边沿的间隔应约 50 μs，脉宽的慢变化跟随给定电角。将三路的相序与模型里的三相 duty 对起来。本次测的是 MCU 逻辑引脚的波形。 [PWM 极性和 CCR](01-pwm-svpwm.md) · [本板引脚](reference.md#示例配置)
 - **实际转向与退出。** 记录轴是否跟随、转向、限流电源读数和停止回读。低电压时可能出现给定角和 duty 都正常而电机没有克服静摩擦的情况。先区分模型给定、MCU 输出、驱动使能和机械响应，再决定检查哪一环。停机确认后断开功率，再做接线或设置调整。
 
-本章结束时保留同一条轨迹的模型电角、duty 与实物观察记录。没有板时，在记录里区分模型预测与待测项。下一章沿这次开环已经采集的电流和角度，查它们从板上读数怎样变成模型能用的反馈。 [后续课程](reference.md#后续课程)
+本章结束时保留同一条轨迹的模型电角、duty 与实物观察记录。没有板时，在记录里区分模型预测与待测项。后续会沿这次开环采集的电流和角度，查它们怎样从板上读数变成模型能用的反馈。 [后续课程](reference.md#后续课程)

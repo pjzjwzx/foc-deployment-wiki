@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
-<title>01　从 Simulink 占空比到 STM32 PWM · FOC 部署 Wiki</title>
+<title>3.2 从 Simulink 占空比到 STM32 PWM · FOC 部署 Wiki</title>
 <link rel="stylesheet" href="assets/wiki.css">
 <script src="assets/search-index.js" defer></script>
 <script src="assets/wiki.js" defer></script>
@@ -12,17 +12,17 @@
 <body>
 <a class="skip-link" href="#article">跳到正文</a>
 <header class="masthead"><div class="masthead-inner">
-<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 00–02</span>
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
 </div></header>
 <div class="shell">
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><div class="nav-heading">课程</div><a href="index.html">首页</a><a href="00-project.html">00 工程启动</a><a href="01-pwm-svpwm.html" aria-current="page">01 PWM 与 SVPWM</a><a href="02-open-loop.html">02 电压开环部署</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · STM32 部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html" aria-current="page">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
-<header class="article-header"><span class="eyebrow">第 01 章</span><h1>01　从 Simulink 占空比到 STM32 PWM</h1></header>
-<p><a href="00-project.html">上一章 00 看懂工程怎样启动</a> · <a href="02-open-loop.html">下一章 02 第一次实际部署电压开环</a></p>
+<header class="article-header"><span class="eyebrow">第 3 章 · 3.2</span><h1>3.2 从 Simulink 占空比到 STM32 PWM</h1></header>
+<p><a href="00-project.html">上一节 3.1 看懂工程怎样启动</a> · <a href="02-open-loop.html">下一节 3.3 第一次实际部署电压开环</a></p>
 <p>你在 Simulink 里已经能把电压矢量变成三相占空比。部署时要给同一组数找到两个落点。第一个是 C 里的 <code>duty[3]</code>，保存每相上桥的理想导通比例。第二个是定时器的三个比较寄存器 <code>CCR1/2/3</code>，硬件用它们决定引脚何时翻转。本章先把输出硬件配好，再回到 MATLAB Function 熟悉的输入和输出，读懂固件怎样算出 duty。</p>
 <h2 id="1-在-cubemx-配好-pwm">1. 在 CubeMX 配好 PWM</h2>
 <p>打开已有工程的 <code>.ioc</code>。下面以 <strong>STM32H743 的 TIM1</strong> 为例。换一款 STM32 时，先从目标芯片和板卡的引脚表找能输出所需 PWM 的定时器，核对它有多少组互补通道、是否支持死区、怎样触发 ADC。引脚位置、时钟倍频规则和触发路由都从目标工程重新确认。 <a href="00-project.html#软件操作手册">打开工程的方法</a> · <a href="reference.html#示例配置">CubeMX 示例参数摘录</a> · <a href="https://www.st.com/resource/en/application_note/an4013-stm32-crossseries-timer-overview-stmicroelectronics.pdf">ST 跨系列定时器概览 AN4013</a></p>
@@ -93,7 +93,7 @@ OCxREF      无效  ────────┘ 有效 ────────�
 <pre><code class="language-text">上数经过 CCR                              下数经过 CCR
 下桥导通 → 两路关断（死区）→ 上桥导通 → 两路关断（死区）→ 下桥导通
 </code></pre>
-<p>改 duty 时还有一条时间线。以本例在上数阶段提交为例，软件写入的是预装载值，峰顶更新事件才把它交给比较器。采样到写入的时间预算要看这个生效边界，04 章会沿这条时序继续追。 <a href="reference.html#后续课程">04 采样、中断与电零点</a></p>
+<p>改 duty 时还有一条时间线。以本例在上数阶段提交为例，软件写入的是预装载值，峰顶更新事件才把它交给比较器。采样到写入的时间预算要看这个生效边界，后续的采样与中断专题会沿这条时序继续追。 <a href="reference.html#后续课程">后续课程</a></p>
 <pre><code class="language-text">计数方向         上数，接近峰顶                         到峰顶并转为下数
 软件与硬件       软件写 CCR 预装载值 ─────────────────→ 更新事件锁存
 比较器使用       旧 CCR                                新 CCR
@@ -167,10 +167,10 @@ return true;
 <ul>
 <li><strong>先看相间差值。</strong> 并排看 <code>dU−dV</code>、<code>dV−dW</code>。它们乘以母线电压，就是理想周期平均线电压。差值对不上时，沿 αβ、三相投影和母线归一化向前查。</li>
 <li><strong>再看逐相 duty。</strong> 两边若使用相同的零矢量分配，逐相占空比也应对上。若差值一致、三相 duty 同时平移，回查模型的零矢量分配和公共偏移。随后用本章的 PWM2 映射，把 duty 对到 CCR 和比较器有效区间。</li>
-<li><strong>在源码里找落点。</strong> LAB1 的固定测试参数会调用 <code>Foc_VoltageStep()</code>，随后把 <code>foc.duty</code> 交给 <code>Board_PwmProbeIsr()</code>。这个路径维持功率驱动关闭。下一章继续用同一个调制函数，换成可调给定、实际母线和受保护的功率桥输出。 <a href="source.html#app-motor-app-c-l498">LAB1 分支</a> · <a href="source.html#bsp-board-c-l137">引脚输出接口</a></li>
+<li><strong>在源码里找落点。</strong> LAB1 的固定测试参数会调用 <code>Foc_VoltageStep()</code>，随后把 <code>foc.duty</code> 交给 <code>Board_PwmProbeIsr()</code>。这个路径维持功率驱动关闭。3.3 继续用同一个调制函数，换成可调给定、实际母线和受保护的功率桥输出。 <a href="source.html#app-motor-app-c-l498">LAB1 分支</a> · <a href="source.html#bsp-board-c-l137">引脚输出接口</a></li>
 </ul>
-<p>去 02 前，准备好目标板的三组 PWM 与相线对应关系、驱动器的有效电平与关断条件、控制侧供电和调试器接法。若用另一款 STM32，先在它的 CubeMX 工程和板级实现中逐项对照本章的时钟、通道、极性、死区与触发设置。 <a href="reference.html#示例配置">板级配置检查表</a> · <a href="02-open-loop.html">下一章 开环部署</a></p>
-<div class="pager"><a href="00-project.html"><small>上一页</small>00 工程启动</a><a href="02-open-loop.html"><small>下一页</small>02 电压开环部署</a></div>
+<p>开始 3.3 前，准备好目标板的三组 PWM 与相线对应关系、驱动器的有效电平与关断条件、控制侧供电和调试器接法。若用另一款 STM32，先在它的 CubeMX 工程和板级实现中逐项对照本章的时钟、通道、极性、死区与触发设置。 <a href="reference.html#示例配置">板级配置检查表</a> · <a href="02-open-loop.html">下一节 3.3 开环部署</a></p>
+<div class="pager"><a href="00-project.html"><small>上一页</small>3.1 工程启动</a><a href="02-open-loop.html"><small>下一页</small>3.3 电压开环部署</a></div>
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
-<title>00　看懂工程怎样启动 · FOC 部署 Wiki</title>
+<title>3.1 看懂工程怎样启动 · FOC 部署 Wiki</title>
 <link rel="stylesheet" href="assets/wiki.css">
 <script src="assets/search-index.js" defer></script>
 <script src="assets/wiki.js" defer></script>
@@ -12,17 +12,17 @@
 <body>
 <a class="skip-link" href="#article">跳到正文</a>
 <header class="masthead"><div class="masthead-inner">
-<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 00–02</span>
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
 </div></header>
 <div class="shell">
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><div class="nav-heading">课程</div><a href="index.html">首页</a><a href="00-project.html" aria-current="page">00 工程启动</a><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a><a href="02-open-loop.html">02 电压开环部署</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · STM32 部署</div><a href="00-project.html" aria-current="page">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
-<header class="article-header"><span class="eyebrow">第 00 章</span><h1>00　看懂工程怎样启动</h1></header>
-<p><a href="index.html">课程首页</a> · <a href="#软件操作手册">软件操作手册</a> · <a href="01-pwm-svpwm.html">下一章 从 Simulink 占空比到 STM32 PWM</a></p>
+<header class="article-header"><span class="eyebrow">第 3 章 · 3.1</span><h1>3.1 看懂工程怎样启动</h1></header>
+<p><a href="index.html">课程首页</a> · <a href="#软件操作手册">软件操作手册</a> · <a href="01-pwm-svpwm.html">下一节 3.2 从 Simulink 占空比到 STM32 PWM</a></p>
 <p>在 Simulink 里，控制模型按设定步长更新。把它部署到 STM32 时，程序先要配置时钟、引脚和外设，再启动采样与输出。这一页沿 H743 示例的 <code>main()</code> 找到两段代码接上的地方。</p>
 <p><strong>源码摘录 1｜CubeMX 生成的入口节选</strong></p>
 <pre><code class="language-c">int main(void)
@@ -37,7 +37,7 @@
   MX_TIM1_Init();
 </code></pre>
 <p><code>int main(void)</code> 定义入口函数，<code>int</code> 声明整数返回类型，<code>void</code> 表示它不接收参数。芯片的启动代码准备好 C 运行环境后进入这个函数。花括号内的 <code>名字()</code> 是调用，执行完函数会回到下一行。上面省略了生成器的注释，摘录到 TIM1 为止。 <a href="source.html#core-src-main-c-l73">启动入口</a></p>
-<p>前两句配置内存访问规则与指令缓存。<code>HAL_Init()</code> 准备 ST 的硬件访问库。时钟配置完成后，<code>MX_…_Init()</code> 依次配置引脚、DMA 数据搬运和定时器等外设。CubeMX 根据 <code>.ioc</code> 生成这些设置。下一章从 <code>MX_TIM1_Init()</code> 跳进定时器的定义。 <a href="reference.html#示例配置">CubeMX 示例参数摘录</a> · <a href="source.html#core-src-tim-c-l30">TIM1 初始化</a></p>
+<p>前两句配置内存访问规则与指令缓存。<code>HAL_Init()</code> 准备 ST 的硬件访问库。时钟配置完成后，<code>MX_…_Init()</code> 依次配置引脚、DMA 数据搬运和定时器等外设。CubeMX 根据 <code>.ioc</code> 生成这些设置。3.2 从 <code>MX_TIM1_Init()</code> 跳进定时器的定义。 <a href="reference.html#示例配置">CubeMX 示例参数摘录</a> · <a href="source.html#core-src-tim-c-l30">TIM1 初始化</a></p>
 <p><strong>源码摘录 2｜外设配置结束后的手写启动调用</strong></p>
 <pre><code class="language-c">  if (!Board_Init() ||
       !MotorApp_Init() ||
@@ -58,11 +58,11 @@
   }
   /* USER CODE END 3 */
 </code></pre>
-<p><code>while (1)</code> 的条件始终成立，<code>MotorApp_Background()</code> 每次返回后便开始下一次循环，继续处理通信与维护。控制计算的采样节拍会在 04 章沿中断入口解释。 <a href="source.html#core-src-main-c-l133">后台调用处</a> · <a href="source.html#app-motor-app-c-l575">后台函数</a></p>
-<p><code>USER CODE BEGIN</code> 和 <code>END</code> 是 CubeMX 用来识别保留区域的注释。上面的后台调用位于 <code>USER CODE 3</code> 区域，三个手写启动调用位于前面的 <code>USER CODE 2</code>。开启 <strong>Keep User Code when re-generating</strong> 后，重新生成会保留这些区域中的代码。这些调用的定义维护在 <code>bsp/</code> 和 <code>app/</code>，控制算法另放在 <code>control/</code>。读完电流环后，06A 章会把各目录的职责串起来。 <a href="source.html#core-src-main-c-l118">启动保留区域</a> · <a href="#在副本重新生成">副本再生成步骤</a> · <a href="reference.html#后续课程">06A 软件分层</a></p>
-<p><a href="01-pwm-svpwm.html">继续读 01 章的 TIM1 和三相 PWM</a></p>
+<p><code>while (1)</code> 的条件始终成立，<code>MotorApp_Background()</code> 每次返回后便开始下一次循环，继续处理通信与维护。控制计算的采样节拍会在后续采样与中断专题解释。 <a href="source.html#core-src-main-c-l133">后台调用处</a> · <a href="source.html#app-motor-app-c-l575">后台函数</a></p>
+<p><code>USER CODE BEGIN</code> 和 <code>END</code> 是 CubeMX 用来识别保留区域的注释。上面的后台调用位于 <code>USER CODE 3</code> 区域，三个手写启动调用位于前面的 <code>USER CODE 2</code>。开启 <strong>Keep User Code when re-generating</strong> 后，重新生成会保留这些区域中的代码。这些调用的定义维护在 <code>bsp/</code> 和 <code>app/</code>，控制算法另放在 <code>control/</code>。读完电流环后，后续的软件分层专题会把各目录的职责串起来。 <a href="source.html#core-src-main-c-l118">启动保留区域</a> · <a href="#在副本重新生成">副本再生成步骤</a> · <a href="reference.html#后续课程">后续课程</a></p>
+<p><a href="01-pwm-svpwm.html">继续读 3.2 的 TIM1 和三相 PWM</a></p>
 <h2 id="软件操作手册">软件操作手册</h2>
-<p>已经另行取得配套工程时，可以按下面的步骤打开、构建或重新生成。在线版提供教学摘录和配置对照。 <a href="#首次构建">首次构建</a> · <a href="#在副本重新生成">在副本重新生成</a></p>
+<p>下面按固定版本 <code>chapter-3</code> 打开、构建或重新生成。在线版提供教学摘录和配置对照。 <a href="https://github.com/pjzjwzx/foc-stm32-example">示例工程</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/archive/refs/tags/chapter-3.zip">下载 chapter-3 ZIP</a> <a href="#首次构建">首次构建</a> · <a href="#在副本重新生成">在副本重新生成</a></p>
 <h3 id="1-准备工具和文件">1　准备工具和文件</h3>
 <p>MCU 是板上执行程序的芯片。这套工程的 MCU 是 <strong>STM32H743VIT6</strong>。电脑上的两个工具分别处理它的配置和程序。</p>
 <div class="table-wrap"><table>
@@ -91,7 +91,7 @@
 </tr>
 <tr>
 <td>教程配套工程</td>
-<td>使用另行取得的、与教程版本匹配的工程压缩包。右键选 <strong>全部解压缩</strong>，进入解压后的目录</td>
+<td>下载本节上方的固定版本 ZIP。右键选 <strong>全部解压缩</strong>，进入解压后的目录</td>
 <td>CubeMX 与 CubeIDE 都指向这份工程</td>
 </tr>
 </tbody>
@@ -99,13 +99,13 @@
 <p><a href="https://www.st.com/en/development-tools/stm32cubemx.html">STM32CubeMX 下载</a> · <a href="https://www.st.com/en/development-tools/stm32cubeide.html">STM32CubeIDE 下载</a> · <a href="https://www.st.com/en/embedded-software/stm32cubeh7.html">STM32CubeH7 固件包说明</a></p>
 <p><strong>核对 H7 固件包。</strong> 在独立 CubeMX 中打开 <strong>Help → Manage embedded software packages</strong>，展开 STM32H7，找到 <strong>V1.12.1</strong>。已有安装时，管理器会显示该版本已安装。需要安装时，在该页选择对应版本安装，或使用从 ST 获取的该版本压缩包。若列表里同时出现几个版本，按完整版本号选。仓库已经带有这套工程构建所需的 HAL 和 CMSIS 文件，因此你可以先完成 IDE 的构建练习，再处理重新生成所需的固件包。 <a href="https://wiki.st.com/stm32mcu/wiki/Getting_started_with_STM32Cube_MCU_Package">ST 固件包安装图示</a></p>
 <p><strong>认出工程根目录。</strong> 在资源管理器打开解压后的文件夹，启用 <strong>查看 → 显示 → 文件扩展名</strong>。如果外层只有另一个同名文件夹，再进去一层。看到下面这些项目时，就到了后面要选的目录。</p>
-<pre><code class="language-text">FOC_Arclab_H743_Engineering/
+<pre><code class="language-text">foc-stm32-example-chapter-3/
 ├── FOC_Arclab_H743_V3.ioc
 ├── .project
 ├── .cproject
 ├── Core/
 ├── config/
-└── docs/
+└── tools/
 </code></pre>
 <div class="table-wrap"><table>
 <thead>
@@ -193,7 +193,7 @@ CubeIDE ── 将 .project 登记到 workspace ─┘
 <ul>
 <li>左侧的 htim1 是存放 TIM1 设置的对象。点号依次进入 Init，再找到其中的 CounterMode。</li>
 <li>等号把右边的值写进左边。右侧的长名字表示中心对齐模式 3，和界面上核对的选项对应。</li>
-<li>句末的分号表示这一条 C 语句结束。初始化函数会把这些设置应用到定时器。下一章会继续追它怎样决定 PWM 周期。</li>
+<li>句末的分号表示这一条 C 语句结束。初始化函数会把这些设置应用到定时器。3.2 会继续追它怎样决定 PWM 周期。</li>
 </ul>
 <p>这就是本课程使用 CubeMX 的方法。先找选项，再找生成的 C，随后观察这句对整个信号路径有什么影响。第一次打开时使用现有值即可继续。</p>
 <h3 id="3-在-cubeide-导入找到并跟随代码">3　在 CubeIDE 导入、找到并跟随代码</h3>
@@ -277,7 +277,7 @@ CubeIDE ── 将 .project 登记到 workspace ─┘
 <pre><code class="language-text">Finished building target: FOC_Arclab_H743_V3.elf
 Build Finished. 0 errors, 0 warnings.
 </code></pre>
-<p>ELF 是电脑上的构建产物，里面包含程序和调试所需的符号。找到本次生成的 ELF 就完成了首次构建。下一章用生成代码读 PWM，第 02 章再按本手册的构建方法准备并下载 LAB2。</p>
+<p>ELF 是电脑上的构建产物，里面包含程序和调试所需的符号。找到本次生成的 ELF 就完成了首次构建。3.2 用生成代码读 PWM，3.3 再按本手册的构建方法准备并下载 LAB2。</p>
 <h4 id="43-构建报错时从第一条开始">4.3 构建报错时，从第一条开始</h4>
 <p>先看 Console 中第一条具体报错。Problems 里常会同时列出后续错误，第一条通常更接近真正原因。下列为报错样式示例。</p>
 <div class="table-wrap"><table>
@@ -327,8 +327,8 @@ Build Finished. 0 errors, 0 warnings.
 <p>CubeMX 的 TIM1 Counter Mode 应为中心对齐模式 3，<code>tim.c</code> 中可找到对应赋值。CubeIDE 的 Location 应指向解压后的工程根目录，并能从 <code>main()</code> 跳到 <code>MotorApp_Init()</code> 的定义。首次构建采用 <code>LAB_STAGE=LAB_PWM_SVPWM</code>，输出在 <strong>Release/FOC_Arclab_H743_V3.elf</strong>。</p>
 <h2 id="这份代码从哪里来">这份代码从哪里来</h2>
 <p>本文以同一份 20 kHz 教学工程为例，使用 STM32H743 电机驱动板与角度编码器。源码定位索引记录了与本课对应的文件及行号。 <a href="source.html">源码定位</a></p>
-<p><a href="index.html">课程首页</a> · <a href="01-pwm-svpwm.html">下一章 PWM 与 SVPWM</a></p>
-<div class="pager"><a href="index.html"><small>上一页</small>首页</a><a href="01-pwm-svpwm.html"><small>下一页</small>01 PWM 与 SVPWM</a></div>
+<p><a href="index.html">课程首页</a> · <a href="01-pwm-svpwm.html">下一节 3.2 PWM 与 SVPWM</a></p>
+<div class="pager"><a href="index.html"><small>上一页</small>首页</a><a href="01-pwm-svpwm.html"><small>下一页</small>3.2 PWM 与 SVPWM</a></div>
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>

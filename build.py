@@ -14,9 +14,9 @@ import markdown
 
 PAGES = {
     'index': ('首页', 'FOC 部署 Wiki'),
-    '00-project': ('00 工程启动', '第 00 章'),
-    '01-pwm-svpwm': ('01 PWM 与 SVPWM', '第 01 章'),
-    '02-open-loop': ('02 电压开环部署', '第 02 章'),
+    '00-project': ('3.1 工程启动', '第 3 章 · 3.1'),
+    '01-pwm-svpwm': ('3.2 PWM 与 SVPWM', '第 3 章 · 3.2'),
+    '02-open-loop': ('3.3 电压开环部署', '第 3 章 · 3.3'),
     'reference': ('配置与验证参考', '附录'),
     'source': ('源码定位', '附录'),
 }
@@ -31,9 +31,10 @@ def slug(value, separator):
 
 def nav(current):
     out = ['<nav aria-label="课程导航">']
-    for i, (key, (name, _)) in enumerate(PAGES.items()):
-        if i in (0, 4):
-            out.append('<div class="nav-heading">' + ('课程' if i == 0 else '附录') + '</div>')
+    for key, (name, _) in PAGES.items():
+        if key in ('00-project', 'reference'):
+            heading = '第 3 章 · STM32 部署' if key == '00-project' else '附录'
+            out.append(f'<div class="nav-heading">{heading}</div>')
         marker = ' aria-current="page"' if key == current else ''
         out.append(f'<a href="{key}.html"{marker}>{name}</a>')
     return ''.join(out) + '</nav>'
@@ -88,7 +89,7 @@ def render(name):
 <body>
 <a class="skip-link" href="#article">跳到正文</a>
 <header class="masthead"><div class="masthead-inner">
-<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 00–02</span>
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
 </div></header>
 <div class="shell">
 <aside class="sidebar">

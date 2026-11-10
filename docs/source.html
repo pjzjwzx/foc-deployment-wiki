@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
+<title>源码定位 · FOC 部署 Wiki</title>
+<link rel="stylesheet" href="assets/wiki.css">
+<script src="assets/search-index.js" defer></script>
+<script src="assets/wiki.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#article">跳到正文</a>
+<header class="masthead"><div class="masthead-inner">
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 00–02</span>
+</div></header>
+<div class="shell">
+<aside class="sidebar">
+<form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
+<div class="search-results" aria-live="polite" hidden></div>
+<nav aria-label="课程导航"><div class="nav-heading">课程</div><a href="index.html">首页</a><a href="00-project.html">00 工程启动</a><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a><a href="02-open-loop.html">02 电压开环部署</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html" aria-current="page">源码定位</a></nav>
+</aside>
+<main class="article" id="article">
+<header class="article-header"><span class="eyebrow">附录</span><h1>源码定位</h1></header>
+<p>三章正文提供本课用到的真实源码摘录。下面按文件汇总其余入口与行号，便于拿到配套工程后定位。行号对应编写本版教程时的工程，换版本可以优先搜索函数名或字段名。</p>
+<h2 id="appmotor_appc">app/motor_app.c</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>去看什么</th>
+<th>出现在哪一章</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span id="app-motor-app-c-l72">第 72 行</span></td>
+<td>应用初始化</td>
+<td><a href="00-project.html">00 工程启动</a></td>
+</tr>
+<tr>
+<td><span id="app-motor-app-c-l116">第 116 行</span></td>
+<td>状态入口</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="app-motor-app-c-l150">第 150 行</span></td>
+<td>状态发布</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="app-motor-app-c-l306">第 306 行</span></td>
+<td>目标接收与限制</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="app-motor-app-c-l414">第 414 行</span></td>
+<td>发布位置</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="app-motor-app-c-l467">第 467 行</span></td>
+<td>零偏完成时进入 Disabled</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="app-motor-app-c-l479">第 479 行</span></td>
+<td>本拍的保护判断</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="app-motor-app-c-l498">第 498 行</span></td>
+<td>LAB1 与 Open 分支、LAB1 分支</td>
+<td><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a> · <a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="app-motor-app-c-l519">第 519 行</span></td>
+<td>开环分支</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="app-motor-app-c-l548">第 548 行</span></td>
+<td>返回后的提交</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="app-motor-app-c-l575">第 575 行</span></td>
+<td>后台函数</td>
+<td><a href="00-project.html">00 工程启动</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="bspboardc">bsp/board.c</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>去看什么</th>
+<th>出现在哪一章</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span id="bsp-board-c-l69">第 69 行</span></td>
+<td>关断入口</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="bsp-board-c-l104">第 104 行</span></td>
+<td>比较值写入</td>
+<td><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a></td>
+</tr>
+<tr>
+<td><span id="bsp-board-c-l118">第 118 行</span></td>
+<td>提交检查、观察与运行提交</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="bsp-board-c-l137">第 137 行</span></td>
+<td>引脚输出接口</td>
+<td><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a></td>
+</tr>
+<tr>
+<td><span id="bsp-board-c-l144">第 144 行</span></td>
+<td>板级准备、板级启动</td>
+<td><a href="00-project.html">00 工程启动</a> · <a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="bsp-board-c-l175">第 175 行</span></td>
+<td>启动采样与通道、板级启动</td>
+<td><a href="00-project.html">00 工程启动</a> · <a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="bspboardh">bsp/board.h</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>去看什么</th>
+<th>出现在哪一章</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span id="bsp-board-h">文件</span></td>
+<td>板级接口</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="configlab_configh">config/lab_config.h</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>去看什么</th>
+<th>出现在哪一章</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span id="config-lab-config-h">文件</span></td>
+<td>对应配置文件、控制周期定义</td>
+<td><a href="00-project.html">00 工程启动</a> · <a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="configmotor_configh">config/motor_config.h</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>去看什么</th>
+<th>出现在哪一章</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span id="config-motor-config-h">文件</span></td>
+<td>电机参数</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="controlfocc">control/foc.c</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>去看什么</th>
+<th>出现在哪一章</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span id="control-foc-c-l20">第 20 行</span></td>
+<td>折回函数</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="control-foc-c-l41">第 41 行</span></td>
+<td>逆 Park 定义</td>
+<td><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a></td>
+</tr>
+<tr>
+<td><span id="control-foc-c-l90">第 90 行</span></td>
+<td>电压检查与限幅</td>
+<td><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a></td>
+</tr>
+<tr>
+<td><span id="control-foc-c-l108">第 108 行</span></td>
+<td>电压到 duty</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="control-foc-c-l119">第 119 行</span></td>
+<td>调用与三相投影</td>
+<td><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a></td>
+</tr>
+<tr>
+<td><span id="control-foc-c-l125">第 125 行</span></td>
+<td>调制源码</td>
+<td><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="coresrcadcc">Core/Src/adc.c</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>去看什么</th>
+<th>出现在哪一章</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span id="core-src-adc-c">文件</span></td>
+<td>ADC 触发配置</td>
+<td><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="coresrcmainc">Core/Src/main.c</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>去看什么</th>
+<th>出现在哪一章</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span id="core-src-main-c-l73">第 73 行</span></td>
+<td>启动入口</td>
+<td><a href="00-project.html">00 工程启动</a></td>
+</tr>
+<tr>
+<td><span id="core-src-main-c-l118">第 118 行</span></td>
+<td>启动保留区域</td>
+<td><a href="00-project.html">00 工程启动</a></td>
+</tr>
+<tr>
+<td><span id="core-src-main-c-l123">第 123 行</span></td>
+<td>回看调用处</td>
+<td><a href="00-project.html">00 工程启动</a></td>
+</tr>
+<tr>
+<td><span id="core-src-main-c-l133">第 133 行</span></td>
+<td>后台调用处</td>
+<td><a href="00-project.html">00 工程启动</a></td>
+</tr>
+<tr>
+<td><span id="core-src-main-c-l148">第 148 行</span></td>
+<td>时钟初始化</td>
+<td><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a></td>
+</tr>
+<tr>
+<td><span id="core-src-main-c-l265">第 265 行</span></td>
+<td>错误处理</td>
+<td><a href="00-project.html">00 工程启动</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="coresrctimc">Core/Src/tim.c</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>去看什么</th>
+<th>出现在哪一章</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span id="core-src-tim-c">文件</span></td>
+<td>TIM1 初始化代码</td>
+<td><a href="00-project.html">00 工程启动</a></td>
+</tr>
+<tr>
+<td><span id="core-src-tim-c-l30">第 30 行</span></td>
+<td>TIM1 初始化</td>
+<td><a href="00-project.html">00 工程启动</a></td>
+</tr>
+<tr>
+<td><span id="core-src-tim-c-l44">第 44 行</span></td>
+<td>定时器初始化</td>
+<td><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a></td>
+</tr>
+<tr>
+<td><span id="core-src-tim-c-l135">第 135 行</span></td>
+<td>PWM 引脚初始化</td>
+<td><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="toolscan_demopy">tools/can_demo.py</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>去看什么</th>
+<th>出现在哪一章</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span id="tools-can-demo-py-l179">第 179 行</span></td>
+<td>工具启停顺序</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+<tr>
+<td><span id="tools-can-demo-py-l322">第 322 行</span></td>
+<td>状态回读实现</td>
+<td><a href="02-open-loop.html">02 电压开环部署</a></td>
+</tr>
+</tbody>
+</table></div>
+
+</main>
+<aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
+<ul>
+<li><a href="#appmotor_appc">app/motor_app.c</a></li>
+<li><a href="#bspboardc">bsp/board.c</a></li>
+<li><a href="#bspboardh">bsp/board.h</a></li>
+<li><a href="#configlab_configh">config/lab_config.h</a></li>
+<li><a href="#configmotor_configh">config/motor_config.h</a></li>
+<li><a href="#controlfocc">control/foc.c</a></li>
+<li><a href="#coresrcadcc">Core/Src/adc.c</a></li>
+<li><a href="#coresrcmainc">Core/Src/main.c</a></li>
+<li><a href="#coresrctimc">Core/Src/tim.c</a></li>
+<li><a href="#toolscan_demopy">tools/can_demo.py</a></li>
+</ul>
+</div>
+</aside>
+</div>
+<footer class="footer">FOC 部署 Wiki · 仿真、固件和实物</footer>
+</body>
+</html>

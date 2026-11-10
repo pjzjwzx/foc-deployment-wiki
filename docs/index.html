@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
+<title>从 Simulink 到 STM32 实机 · FOC 部署 Wiki</title>
+<link rel="stylesheet" href="assets/wiki.css">
+<script src="assets/search-index.js" defer></script>
+<script src="assets/wiki.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#article">跳到正文</a>
+<header class="masthead"><div class="masthead-inner">
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 00–02</span>
+</div></header>
+<div class="shell">
+<aside class="sidebar">
+<form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
+<div class="search-results" aria-live="polite" hidden></div>
+<nav aria-label="课程导航"><div class="nav-heading">课程</div><a href="index.html" aria-current="page">首页</a><a href="00-project.html">00 工程启动</a><a href="01-pwm-svpwm.html">01 PWM 与 SVPWM</a><a href="02-open-loop.html">02 电压开环部署</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+</aside>
+<main class="article" id="article">
+<header class="article-header"><span class="eyebrow">FOC 部署 Wiki</span><h1>从 Simulink 到 STM32 实机</h1></header>
+<p>你已经在 Simulink 里搭过电机控制模型。这里从熟悉的电压矢量和占空比出发，沿实际代码走到定时器、PWM 引脚和第一次电压开环。</p>
+<h2 id="开始学习">开始学习</h2>
+<div class="cards">
+<a class="card" href="00-project.html"><span class="eyebrow">00 · 工程入口</span><strong>看懂工程怎样启动</strong><span>从 main() 区分 CubeMX 初始化和手写应用，找到独立的软件操作手册。</span></a>
+<a class="card" href="01-pwm-svpwm.html"><span class="eyebrow">01 · PWM 与 SVPWM</span><strong>把模型的占空比交给定时器</strong><span>先配 CubeMX，再看计数、互补输出和死区，最后把 min/max 与扇区法对上。</span></a>
+<a class="card" href="02-open-loop.html"><span class="eyebrow">02 · 电压开环</span><strong>沿给定电角完成一次启停</strong><span>追到逆 Park 和功率输出，再按 LAB2 的构建、SWD 下载和 CAN 启停步骤部署。</span></a>
+</div>
+
+<h2 id="怎么使用这份-wiki">怎么使用这份 Wiki</h2>
+<ul>
+<li><strong>已有仿真模型。</strong> 从 00 章开始，继续用自己的电压、占空比和角度波形对照固件。正文保留可直接读的 C 源码摘录。</li>
+<li><strong>已另行取得配套工程。</strong> 按工具手册导入并构建。CubeMX 部分用 STM32H743 的工程作示范，换器件时按实际定时器、触发和关断接口配置。</li>
+<li><strong>准备上板。</strong> 先核对板卡、电机与电源条件，再进入 02 章的操作流程。软件构建及 CAN 离线预览已经核对，实机试转待验证。</li>
+</ul>
+<p><a href="reference.html">配置与验证参考</a> · <a href="source.html">源码定位</a> · <a href="reference.html#后续课程">后续课程</a></p>
+
+</main>
+<aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
+<ul>
+<li><a href="#开始学习">开始学习</a></li>
+<li><a href="#怎么使用这份-wiki">怎么使用这份 Wiki</a></li>
+</ul>
+</div>
+</aside>
+</div>
+<footer class="footer">FOC 部署 Wiki · 仿真、固件和实物</footer>
+</body>
+</html>

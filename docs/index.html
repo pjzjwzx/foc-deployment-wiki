@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
-<title>从 Simulink 到 STM32 实机 · FOC 部署 Wiki</title>
+<title>如何从基础工科到电机控制FOC实操-简易精准的无痛入门教程 · FOC 部署 Wiki</title>
 <link rel="stylesheet" href="assets/wiki.css">
 <script src="assets/search-index.js" defer></script>
 <script src="assets/wiki.js" defer></script>
@@ -21,8 +21,11 @@
 <nav aria-label="课程导航"><a href="index.html" aria-current="page">首页</a><div class="nav-heading">第 3 章 · STM32 部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
-<header class="article-header"><span class="eyebrow">FOC 部署 Wiki</span><h1>从 Simulink 到 STM32 实机</h1></header>
-<p>你已经在 Simulink 里搭过电机控制模型。第 3 章从熟悉的电压矢量和占空比出发，沿实际代码走到定时器、PWM 引脚和第一次电压开环。</p>
+<header class="article-header"><span class="eyebrow">FOC 部署 Wiki</span><h1>如何从基础工科到电机控制FOC实操-简易精准的无痛入门教程</h1></header>
+<p>“无痛”指少迷茫，少走弯路，少自己摸索该怎么学、怎么做。这个过程会带来discourage和迷茫。
+这份教程主要做统合、并补齐现有开源教材没有覆盖的点，所以部分模块会直接推荐已有的很好的教材/教程
+这份教材不能够完全cover工业化的、完备的工业电机程序，但是能快速从0入门
+在使用这份教程时，要善用ai来解决一些让人烦躁的小问题</p>
 <h2 id="开始学习">开始学习</h2>
 <div class="table-wrap"><table>
 <thead>
@@ -34,11 +37,11 @@
 <tbody>
 <tr>
 <td>第 1 章</td>
-<td>预留</td>
+<td>理解FOC的几个部分</td>
 </tr>
 <tr>
 <td>第 2 章</td>
-<td>预留</td>
+<td>在Simulink中搭建一套简易的FOC</td>
 </tr>
 <tr>
 <td>第 3 章　STM32 部署</td>

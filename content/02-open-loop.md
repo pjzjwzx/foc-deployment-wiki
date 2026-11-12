@@ -1,10 +1,12 @@
 # 3.3 第一次实际部署电压开环
 
-[上一节 3.2 PWM 与 SVPWM](01-pwm-svpwm.md) · [后续课程](reference.md#后续课程)
+[上一节 3.2 PWM 与 SVPWM](01-pwm-svpwm.md) · [下一节 3.4 电流与角度传感器](03-sensors.md)
 
-这一章把 Simulink 里的电压开环接到实物。你会沿同一条通路找到模型信号、C 变量和板上输出，然后构建 LAB2，下载到板上，用小幅 Vq 给定完成一次短时开环和停机。手边没有板时，可以沿现有模型波形读代码，并对照本页的离线输出。实机下载与试转待验证。
+这一节把 Simulink 里的电压开环接到实物。你会沿同一条通路找到模型信号、C 变量和板上输出，然后构建 LAB2，下载到板上，用小幅 Vq 给定完成一次短时开环和停机。手边没有板时，可以沿现有模型波形读代码，并对照本页的离线输出。实机下载与试转待验证。
 
-## 将模型里的给定电角接到 SVPWM
+## 通用 FOC 部署
+
+### 将模型里的给定电角接到 SVPWM
 
 在模型里，从给定电角速度出发，每个控制周期将角度加上 `ωe × dt`，再把角度折回一圈。给定电角与 `Vd/Vq` 进入逆 Park，所得 `vα/vβ` 接到 SVPWM。打开固件的 `APP_OPEN` 分支，先按这条信号线往下读。 [开环分支](source.md#app-motor-app-c-l519)
 
@@ -21,7 +23,7 @@ else if (state == APP_OPEN)
 
 第一条赋值把电角速度乘以控制周期，再加到旧的 `open_angle`。本工程每 50 μs 计算一次。用本章命令里的 10 rad/s 估算，每拍加约 0.0005 rad。实际 CAN 给定经量化会略有出入。`Foc_WrapTwoPi` 把新角折回 `[0, 2π)`，所以波形越过一圈时会回到接近 0 的值。电角速度为负时，给定角沿反方向走。这里的速度描述电压场转得多快，转子实际能否跟随还要观察。 [折回函数](source.md#control-foc-c-l20) · [控制周期定义](source.md#config-lab-config-h)
 
-第二句把新角交给3.2 读过的 `Foc_VoltageStep`。本例 `Vd=0`，`Vq` 取最新目标。函数仍按原来的顺序限幅，用逆 Park 得到 `vα/vβ`，再用 SVPWM 算三相 duty。结果写入 `foc`，成功或失败通过返回值交给本拍的 `ok`。回到应用后，继续走 PWM 提交判断。 [电压到 duty](source.md#control-foc-c-l108) · [返回后的提交](source.md#app-motor-app-c-l548)
+第二句把新角交给 3.2 读过的 `Foc_VoltageStep`。本例 `Vd=0`，`Vq` 取最新目标。函数仍按原来的顺序限幅，用逆 Park 得到 `vα/vβ`，再用 SVPWM 算三相 duty。结果写入 `foc`，成功或失败通过返回值交给本拍的 `ok`。回到应用后，继续走 PWM 提交判断。 [电压到 duty](source.md#control-foc-c-l108) · [返回后的提交](source.md#app-motor-app-c-l548)
 
 | 模型里的信号 | 在固件中找哪里 | 本章用什么核对 |
 |---|---|---|
@@ -31,11 +33,9 @@ else if (state == APP_OPEN)
 | 用于归一化的母线电压，V | `bus`，来自 `Board_BusVoltage()` | 记录 `MotorApp_Diagnostics.bus_voltage_V`，与板上允许的测量结果对照 |
 | 固定坐标电压 `vα/vβ`、三相 duty | `foc.alpha_voltage_V`、`foc.beta_voltage_V`、`foc.duty[0..2]` | 在模型里跟同一段角度轨迹，核对相序和 duty 变化，在板上看对应的 MCU PWM 引脚 |
 
-LAB1 和 LAB2 用的是同一套逆 Park 与 SVPWM。LAB1 的观察分支每秒推进一圈电角，用固定 `Vd=0 V`、`Vq=1 V` 和名义母线 24 V 算 duty。它将功率驱动使能保持为低，只让 MCU 引脚有 PWM。LAB2 开放 `APP_OPEN`，电角速度和 Vq 由运行时命令给出，母线来自实际采样，duty 经受保护的提交路径才能送给已使能的驱动。两个阶段的载波仍是 20 kHz。 [LAB1 与 Open 分支](source.md#app-motor-app-c-l498) · [观察与运行提交](source.md#bsp-board-c-l118)
+### 从停机到允许开环
 
-## 从停机到允许开环
-
-`LAB_STAGE` 是构建时的能力选择。设为 LAB2 后，固件上电先采集电流零偏，随后停在 `APP_DISABLED`（2）。电脑先请求 `APP_OPEN`（3），板上接受后才持续接收电角速度和 Vq。状态与数据帧的详细格式留到后续的 CAN 专题。 [后续课程](reference.md#后续课程)
+`LAB_STAGE` 是构建时的能力选择。设为 LAB2 后，固件上电先采集电流零偏，随后停在 `APP_DISABLED`（2）。示例通过 CAN 请求 `APP_OPEN`（3），应用接受后才持续接收电角速度和 Vq。换平台时，本地按键或其他总线也可以提供运行请求和给定。应用先处理运行状态请求，再接收与当前状态匹配的目标。 [3.10 CAN MIT](08-can-mit.md)
 
 **执行示意**。阶段仍是 LAB2，箭头只表示运行状态的改变。
 
@@ -51,7 +51,13 @@ LAB1 和 LAB2 用的是同一套逆 Park 与 SVPWM。LAB1 的观察分支每秒�
                                          └── 排除原因并明确清故障 → Disabled（2）
 ~~~
 
-`request_state` 先检查阶段是否允许目标状态、电流零偏是否采完，并要求首次开环从 Disabled 出发且无故障。下面从通过这些检查的位置继续读。 [状态入口](source.md#app-motor-app-c-l116) · [零偏完成时进入 Disabled](source.md#app-motor-app-c-l467)
+`request_state` 先检查阶段是否允许目标状态、电流零偏是否采完，并要求首次开环从 Disabled 出发且无故障。开环目标可在功率输出就绪后更新。应用收到停机请求或检测到故障时，要让输出立即进入安全状态，并清掉本次运行的目标。换板时需要给应用提供等价的就绪检查和关断接口。 [状态入口](source.md#app-motor-app-c-l116) · [零偏完成时进入 Disabled](source.md#app-motor-app-c-l467)
+
+## STM32 部署示例
+
+LAB1 和 LAB2 用的是同一套逆 Park 与 SVPWM。LAB1 的观察分支每秒推进一圈电角，用固定 `Vd=0 V`、`Vq=1 V` 和名义母线 24 V 算 duty。它将功率驱动使能保持为低，只让 MCU 引脚有 PWM。LAB2 开放 `APP_OPEN`，电角速度和 Vq 由运行时命令给出，母线来自实际采样，duty 经受保护的提交路径才能送给已使能的驱动。两个阶段的载波仍是 20 kHz。 [LAB1 与 Open 分支](source.md#app-motor-app-c-l498) · [观察与运行提交](source.md#bsp-board-c-l118)
+
+### 追踪示例板的启桥检查
 
 **源码摘录**。这是首次进入 Open 等运行态时的检查。省略了前面的停机和重复请求分支，以及成功后发布状态的临界区。
 
@@ -86,9 +92,11 @@ if (running() && (!ok || !Board_ApplyDutyIsr(foc.duty)))
 
 状态仍在运行且 `ok` 为真时，`Board_ApplyDutyIsr` 检查占空比、驱动是否启用、故障输入和定时器提交窗口。`Board_DriverFault` 读板级故障输入。板级返回成功，应用接着记录诊断。计算失败时，`!ok` 已经为真，右边的提交函数不会调用。提交失败也走同一个故障处理，经 `Board_StopIsr` 关闭 PWM 总输出和驱动使能。母线异常、运行中编码器失效、过流以及运动命令超时也会关桥。该工程的通信超时阈值为 100 ms。 [提交检查](source.md#bsp-board-c-l118) · [关断入口](source.md#bsp-board-c-l69) · [本拍的保护判断](source.md#app-motor-app-c-l479)
 
-## 构建 LAB2 并找到本次 ELF
+### 构建 LAB2 并找到本次 ELF
 
-以下构建、下载和 CAN 步骤使用固定标签 `chapter-3`。 [示例工程](https://github.com/pjzjwzx/foc-stm32-example) · [下载 chapter-3 ZIP](https://github.com/pjzjwzx/foc-stm32-example/archive/refs/tags/chapter-3.zip)本节以 STM32H743 示例板、CubeIDE 2.0.0 和 ST-LINK 为例。用其他板时，先按板卡资料核对下载接口、供电和驱动允许条件。工程尚未导入时，先按 [3.1 软件操作手册](00-project.md#软件操作手册) 打开已解压的工程。只切换实验阶段时直接构建现有工程。
+以下构建、下载和 CAN 步骤使用固定标签 `chapter-3`。 [示例工程](https://github.com/pjzjwzx/foc-stm32-example) · [下载 chapter-3 ZIP](https://github.com/pjzjwzx/foc-stm32-example/archive/refs/tags/chapter-3.zip)
+
+本节以 STM32H743 示例板、CubeIDE 2.0.0 和 ST-LINK 为例。用其他板时，先按板卡资料核对下载接口、供电和驱动允许条件。工程尚未导入时，先按 [3.1 软件操作手册](00-project.md#软件操作手册) 打开已解压的工程。只切换实验阶段时直接构建现有工程。
 
 1. 在 CubeIDE 的 **Project Explorer** 展开 `config/lab_config.h`。找到 `#ifndef LAB_STAGE` 下面指定 `LAB_STAGE` 的一行，将它改成 `#define LAB_STAGE LAB_OPEN_LOOP`，按 **Ctrl+S** 保存。保留各阶段的编号定义。
 2. 右键工程，选 **Build Configurations → Set Active → Release**，再选 **Build Project**。看 **Console** 最后一段，确认生成 `FOC_Arclab_H743_V3.elf`，且构建报告 0 errors。若失败，从第一条具体报错定位。 [首次构建与排错](00-project.md#首次构建)
@@ -100,7 +108,7 @@ if (running() && (!ok || !Board_ApplyDutyIsr(foc.duty)))
 python tools/build.py --stage 2 --output build/lab2
 ```
 
-## 保持功率断开，用 SWD 下载并运行
+### 保持功率断开，用 SWD 下载并运行
 
 1. **准备控制侧。** 保持电机功率电源断开。按实板资料准备 MCU、采样电路、编码器和 CAN 收发器需要的控制供电。启动代码会初始化编码器，传感器缺电或初始化失败时，程序可能在启动 PWM 和采样之前退出。没有经确认的独立控制供电接法时，先在电脑完成构建和命令预览。 [板级启动](source.md#bsp-board-c-l144)
 2. **连接探头。** 按板上 SWD 接口标识连接 ST-LINK。本板的 MCU 信号是 SWDIO（PA13）、SWCLK（PA14），还要按板卡和探头手册接参考地与所需的目标电压参考或复位线。USB 识别到调试器后，还应确认目标板已正确供电。 [本板引脚配置](reference.md#示例配置)
@@ -110,7 +118,7 @@ python tools/build.py --stage 2 --output build/lab2
     - 在 **Debugger** 页选 **ST-LINK (ST-LINK GDB server)**，**Interface** 选 **SWD**。在 **Startup → Load Image and Symbols** 检查所选 ELF 和 **Download**、**Load symbols**。点 **Apply**，再点 **Debug**。 [CubeIDE 用户手册的 Debug 章节](https://www.st.com/resource/en/user_manual/um2609-stm32cubeide-user-guide-stmicroelectronics.pdf)
 4. **确认写入并恢复执行。** 在 Console 查看下载与校验结果。若下载后停在 `main`，按 **Resume** 让程序运行。等三相电流零偏采集完成，`MotorApp_Diagnostics.state` 应到 2。若停在 `Error_Handler`，先核对 ELF、控制供电、编码器接线和外设初始化。上板运动时使用运行中的只读观察，先停机并断开功率，再停在断点。
 
-## 最小 CAN 启停卡
+### 最小 CAN 启停卡
 
 在工程根目录打开 PowerShell，先用 `python --version` 确认能启动 Python 3，再运行下面一条。未加 `--send` 时只预览，无需适配器和 Python CAN 库。输出应依次列出停机请求、开环请求、持续两秒的给定和退出停机。这里的 0.2 V 是 q 轴给定电压，功率电源按板卡资料设置。
 
@@ -143,17 +151,17 @@ python tools/can_demo.py open --electrical-speed 10 --vq 0.2 --duration 2
 
 若一进入 Open 就报通信故障，先停机，核对适配器和持续发帧，再对照已记录的时间戳时序复现。 [CAN 看门狗时序复现](reference.md#验证记录)
 
-## 在同一次开环里看角度、PWM 和转向
+### 在同一次开环里看角度、PWM 和转向
 
 接入功率前，确认电机 profile 与实物相符，按板卡资料核对控制侧供电、编码器、相线和电源额定条件。固定电机，保持轴端空载并留出运动空间。用限流电源，确认怎样直接断开功率。若要观察 PWM，在功率断开时先把探头接到允许的低压参考和 MCU 逻辑引脚，再执行启停卡。若电流异常、机械动作失控或出现故障，停机并断开功率后检查。 [电机参数](source.md#config-motor-config-h) · [配套板配置](reference.md#示例配置)
 
-### UART4 波形观察
+#### UART4 波形观察
 
 1. 按板卡资料将 UART4 TX（本板 PB9）接到电平匹配的 USB 转串口适配器 RX，并接好参考地。这里的串口接收遥测，CAN 适配器负责启停。
 2. 打开支持 **JustFloat** 的波形工具，选插入串口适配器后出现的端口。设 **1000000 baud、8 数据位、无校验、1 停止位、无流控**，选择 **JustFloat** 解码并开始接收。二进制数据在普通文本终端里会显示为乱码。
 3. LAB2 的 ch0–ch2 是三相电流（A），ch3 是归一化机械角，ch4 是反馈电角，ch5 是给定电角，三个角的单位均为 rad。用 ch5 看命令推进的角。ch4 依赖反馈的有效角度基准，等后续标定建立电零点，再用它判断坐标是否对齐。 [遥测通道](reference.md#示例配置) · [发布位置](source.md#app-motor-app-c-l414)
 
-### 开环记录
+#### 开环记录
 
 在这次短时运行中记录以下几项。
 
@@ -161,4 +169,4 @@ python tools/can_demo.py open --electrical-speed 10 --vq 0.2 --duration 2
 - **三相 PWM。** 用板卡允许的低压参考接法，在 MCU 的 PA8、PA9、PA10 观察三路 PWM。相邻同向边沿的间隔应约 50 μs，脉宽的慢变化跟随给定电角。将三路的相序与模型里的三相 duty 对起来。本次测的是 MCU 逻辑引脚的波形。 [PWM 极性和 CCR](01-pwm-svpwm.md) · [本板引脚](reference.md#示例配置)
 - **实际转向与退出。** 记录轴是否跟随、转向、限流电源读数和停止回读。低电压时可能出现给定角和 duty 都正常而电机没有克服静摩擦的情况。先区分模型给定、MCU 输出、驱动使能和机械响应，再决定检查哪一环。停机确认后断开功率，再做接线或设置调整。
 
-本章结束时保留同一条轨迹的模型电角、duty 与实物观察记录。没有板时，在记录里区分模型预测与待测项。后续会沿这次开环采集的电流和角度，查它们怎样从板上读数变成模型能用的反馈。 [后续课程](reference.md#后续课程)
+本节结束时保留同一条轨迹的模型电角、duty 与实物观察记录。没有板时，在记录里区分模型预测与待测项。后续会沿这次开环采集的电流和角度，查它们怎样从板上读数变成模型能用的反馈。 [下一节 3.4 电流与角度传感器](03-sensors.md)

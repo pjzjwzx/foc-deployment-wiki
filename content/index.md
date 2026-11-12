@@ -15,13 +15,26 @@
 |---|---|
 | 第 1 章 | 理解FOC的几个部分 |
 | 第 2 章 | 在Simulink中搭建一套简易的FOC |
-| 第 3 章　STM32 部署 | 规划 11 节，已公开 3 节（3.1–3.3） |
+| 第 3 章　FOC 实际部署 | 11 节（3.1–3.11） |
 
 <div class="cards">
 <a class="card" href="00-project.html"><span class="eyebrow">3.1 · 工程启动</span><strong>看懂工程怎样启动</strong><span>从 main() 区分 CubeMX 初始化和手写应用，找到独立的软件操作手册。</span></a>
-<a class="card" href="01-pwm-svpwm.html"><span class="eyebrow">3.2 · PWM 与 SVPWM</span><strong>把模型的占空比交给定时器</strong><span>先配 CubeMX，再看计数、互补输出和死区，最后把 min/max 与扇区法对上。</span></a>
+<a class="card" href="01-pwm-svpwm.html"><span class="eyebrow">3.2 · PWM 与 SVPWM</span><strong>把模型的占空比交给定时器</strong><span>先把 min/max 与扇区法对上，再看 CubeMX、互补输出和死区。</span></a>
 <a class="card" href="02-open-loop.html"><span class="eyebrow">3.3 · 电压开环</span><strong>沿给定电角完成一次启停</strong><span>追到逆 Park 和功率输出，再按 LAB2 的构建、SWD 下载和 CAN 启停步骤部署。</span></a>
 </div>
+
+### 从反馈到闭环
+
+| 小节 | 源码走读 |
+|---|---|
+| [3.4 电流与角度传感器](03-sensors.md) | 从 ADC 计数和编码器帧得到安培与机械角。 |
+| [3.5 采样、中断与电零点](04-sampling-zero.md) | 从离散步长追到触发、控制计算和 CCR 生效，再看电角基准。 |
+| [3.6 坐标变换与开环验算](05-transforms.md) | 保持电压开环，沿 Clarke、Park 核对波形。 |
+| [3.7 PI 电流闭环](06-current-pi.md) | 跟一拍离散 PI，从电流误差走到限幅与占空比。 |
+| [3.8 从一拍控制理解软件分层](06a-software-architecture.md) | 沿命令与过流停机认识各层接口。 |
+| [3.9 速度估计与速度闭环](07-speed.md) | 从两个角度样本估速度，再由速度 PI 产生 Iq 参考。 |
+| [3.10 CAN MIT](08-can-mit.md) | 沿一帧报文追到输出轴力矩、电机电流和反馈。 |
+| [3.11 开环 LUT 标定](09-lut.md) | 读懂正反向扫描、角度修正与掉电保存。 |
 
 ## 配套固件
 
@@ -29,8 +42,8 @@
 
 ## 怎么使用这份 Wiki
 
-- **对照仿真。** 从 3.1 开始，继续用自己的电压、占空比和角度波形对照固件。
-- **构建固件。** 按 3.1 的工具手册导入并构建。CubeMX 部分用 STM32H743 作示范，换器件时按实际定时器、触发和关断接口配置。
+- **读通用 FOC 部署。** 从 3.1 开始，用自己的 Simulink 信号对照 C 变量、控制周期和运行条件。
+- **看 STM32 部署示例。** 想在板上复现时，按 3.1 的工具手册导入并构建。CubeMX 部分用 STM32H743 作示范，换器件时按实际定时器、触发和关断接口配置。
 - **准备上板。** 先核对板卡、电机与电源条件，再进入 3.3 的操作流程。软件构建及 CAN 离线预览已经核对，实机试转待验证。
 
-[配置与验证参考](reference.md) · [源码定位](source.md) · [后续课程](reference.md#后续课程)
+[配置与验证参考](reference.md) · [源码定位](source.md)

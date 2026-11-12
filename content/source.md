@@ -1,6 +1,19 @@
 # 源码定位
 
-第 3 章的 3.1–3.3 提供正文用到的源码摘录。下表按文件汇总入口与行号，对应配套固件的固定标签 `chapter-3`。换版本时可以优先搜索函数名或字段名。 [示例工程](https://github.com/pjzjwzx/foc-stm32-example) · [下载 chapter-3 ZIP](https://github.com/pjzjwzx/foc-stm32-example/archive/refs/tags/chapter-3.zip)
+第 3 章的源码链接对应配套固件的固定标签 `chapter-3`。换版本时可以优先搜索函数名或字段名。 [示例工程](https://github.com/pjzjwzx/foc-stm32-example) · [下载 chapter-3 ZIP](https://github.com/pjzjwzx/foc-stm32-example/archive/refs/tags/chapter-3.zip)
+
+## 按信号查找源码
+
+| 从哪条信号开始 | 源码落点 | 对应小节 |
+|---|---|---|
+| 三相原始计数、编码器读数 | [采样帧入口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L462) · [编码器取样](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/encoder.c#L383) | [3.4 电流与角度传感器](03-sensors.md) |
+| ADC 转换完成、PWM 写入与电角基准 | [ADC 中断](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/stm32h7xx_it.c#L261) · [三相数据汇合](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L298) · [电角计算](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L71) | [3.5 采样、中断与电零点](04-sampling-zero.md) |
+| 相电流、反馈电角、Id/Iq | [测量与变换](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L78) | [3.6 坐标变换与开环验算](05-transforms.md) |
+| 电流目标、PI 积分与三相 duty | [电流 PI](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L134) · [比较值提交](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L118) | [3.7 PI 电流闭环](06-current-pi.md) |
+| 电流命令与故障 | [应用接收命令](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L306) · [故障处理](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L53) | [3.8 软件分层](06a-software-architecture.md) |
+| 机械角、速度与 Iq 参考 | [速度估计](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L32) · [外环调度](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L527) | [3.9 速度估计与速度闭环](07-speed.md) |
+| MIT 命令、输出轴力矩与反馈 | [报文解码](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.c#L29) · [MIT 计算](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L185) | [3.10 CAN MIT](08-can-mit.md) |
+| 原始角、零位与修正表 | [扫描](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/calibration.c#L125) · [插值](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L19) · [Flash 保存](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/flash_store.c#L11) | [3.11 开环 LUT 标定](09-lut.md) |
 
 ## app/motor_app.c
 
@@ -8,7 +21,7 @@
 |---|---|---|
 | <a id="app-motor-app-c-l72" href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L72">第 72 行</a> | 应用初始化 | [3.1 工程启动](00-project.md) |
 | <a id="app-motor-app-c-l116" href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L116">第 116 行</a> | 状态入口 | [3.3 电压开环部署](02-open-loop.md) |
-| <a id="app-motor-app-c-l150" href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L150">第 150 行</a> | 状态发布 | [3.3 电压开环部署](02-open-loop.md) |
+| <a id="app-motor-app-c-l150" href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L155">第 155 行</a> | 状态发布 | [3.3 电压开环部署](02-open-loop.md) |
 | <a id="app-motor-app-c-l306" href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L306">第 306 行</a> | 目标接收与限制 | [3.3 电压开环部署](02-open-loop.md) |
 | <a id="app-motor-app-c-l414" href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L414">第 414 行</a> | 发布位置 | [3.3 电压开环部署](02-open-loop.md) |
 | <a id="app-motor-app-c-l467" href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L467">第 467 行</a> | 零偏完成时进入 Disabled | [3.3 电压开环部署](02-open-loop.md) |

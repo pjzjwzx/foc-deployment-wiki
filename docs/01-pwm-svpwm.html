@@ -18,21 +18,89 @@
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · STM32 部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html" aria-current="page">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html" aria-current="page">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与电零点</a><a href="05-transforms.html">3.6 坐标变换与开环验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
 <header class="article-header"><span class="eyebrow">第 3 章 · 3.2</span><h1>3.2 从 Simulink 占空比到 STM32 PWM</h1></header>
 <p><a href="00-project.html">上一节 3.1 看懂工程怎样启动</a> · <a href="02-open-loop.html">下一节 3.3 第一次实际部署电压开环</a></p>
-<p>你在 Simulink 里已经能把电压矢量变成三相占空比。部署时要给同一组数找到两个落点。第一个是 C 里的 <code>duty[3]</code>，保存每相上桥的理想导通比例。第二个是定时器的三个比较寄存器 <code>CCR1/2/3</code>，硬件用它们决定引脚何时翻转。本章先把输出硬件配好，再回到 MATLAB Function 熟悉的输入和输出，读懂固件怎样算出 duty。</p>
-<h2 id="1-在-cubemx-配好-pwm">1. 在 CubeMX 配好 PWM</h2>
+<p>你在 Simulink 里已经能把电压矢量变成三相占空比。部署时要给同一组数找到两个落点。第一个是 C 里的 <code>duty[3]</code>，保存每相上桥的理想导通比例。第二个是定时器的三个比较寄存器 <code>CCR1/2/3</code>，硬件用它们决定引脚何时翻转。本节先从 MATLAB Function 熟悉的输入和输出读懂固件怎样算 duty，再用 TIM1 把它变成引脚波形。</p>
+<h2 id="通用-foc-部署">通用 FOC 部署</h2>
+<h3 id="从扇区法读懂-minmax-svpwm">从扇区法读懂 min/max SVPWM</h3>
+<p>在你已有的 MATLAB Function 里，常见的输入是静止坐标系的 <code>v_alpha</code>、<code>v_beta</code> 和母线电压 <code>Vbus</code>。扇区法先找到附近的两个有效矢量，算出它们和零矢量各占一拍多少时间，再从开关序列得到三相 duty。这个工程把工作转到三相参考上。以下是同一个函数连续执行的两段代码。</p>
+<h4 id="先得到三相电压参考">先得到三相电压参考</h4>
+<p>进入 <code>Foc_VoltageStep()</code> 时，输入是 d/q 电压、给定电角和母线电压。控制对象地址为空时直接返回 <code>false</code>。有控制对象时，函数检查数值和母线条件，再把 d/q 矢量等比例限制在电机配置与母线共同允许的范围内。输入检查或限幅失败时，它把软件输出恢复到中性值并返回 <code>false</code>，运行分支据此处理停机。有效输入继续做逆 Park。 <a href="source.html#control-foc-c-l90">电压检查与限幅</a></p>
+<pre><code class="language-c">Foc_InversePark(vd, vq, angle, &amp;foc-&gt;alpha_voltage_V, &amp;foc-&gt;beta_voltage_V);
+float phase[3] = {
+    foc-&gt;alpha_voltage_V,
+    -0.5f * foc-&gt;alpha_voltage_V + 0.86602540378f * foc-&gt;beta_voltage_V,
+    -0.5f * foc-&gt;alpha_voltage_V - 0.86602540378f * foc-&gt;beta_voltage_V
+};
+</code></pre>
+<p><code>foc</code> 指向控制对象，<code>&amp;foc-&gt;alpha_voltage_V</code> 把字段的地址交给逆 Park，函数可以把结果写回来。读到写回的 αβ，就找到了原 MATLAB Function 的电压输入。接下来的三个表达式把同一支 αβ 电压箭头投影到相隔 120° 的三个轴上，依次得到 U、V、W 三相参考，单位是 V。逆 Park 使用给定电角的正余弦。 <a href="source.html#control-foc-c-l41">逆 Park 定义</a> · <a href="source.html#control-foc-c-l119">调用与三相投影</a></p>
+<h4 id="给三相加同一个偏移">给三相加同一个偏移</h4>
+<pre><code class="language-c">float minimum = fminf(phase[0], fminf(phase[1], phase[2]));
+float maximum = fmaxf(phase[0], fmaxf(phase[1], phase[2]));
+/* 给三相同时加入相同零序电压，不改变线电压，即min/max形式SVPWM。 */
+float center = 0.5f * (minimum + maximum);
+for (unsigned i = 0; i &lt; 3U; ++i)
+    foc-&gt;duty[i] = Clamp(0.5f + (phase[i] - center) / bus_voltage_V, 0.0f, 1.0f);
+return true;
+</code></pre>
+<ol>
+<li><code>minimum</code> 和 <code>maximum</code> 找出当前这一拍的最低、最高相参考，<code>center</code> 取两者的中点。</li>
+<li>三相都减去 <code>center</code> 后，最高和最低值关于 0 对称。相减时公共偏移抵消，例如 <code>(vU−center)−(vV−center)=vU−vV</code>。所以这一步能安排三相脉冲的公共部分，同时保留电机端的线电压指令。</li>
+<li>每相再除以 <code>bus_voltage_V</code>，把电压变成比例。加上 0.5 后写入 <code>duty[i]</code>，<code>Clamp</code> 把它限制到 0～1。三相算完，<code>return true</code> 回到调用处。 <a href="source.html#control-foc-c-l125">调制源码</a></li>
+</ol>
+<h4 id="为什么这和你熟悉的扇区法能对上">为什么这和你熟悉的扇区法能对上</h4>
+<p>用 <strong>H、M、L</strong> 表示本拍 duty 从大到小的三个相，字母随矢量角度改变。对同一条中心对齐载波，较大的 duty 覆盖较小的 duty。在线性调制范围内、忽略死区与计数取整，按 H/M/L 的顺序看上桥状态，会出现以下四种组合。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>上桥状态</th>
+<th>整拍占比</th>
+<th>在扇区法里对应什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>000</code></td>
+<td><code>1 − dH</code></td>
+<td>三相上桥都关闭时的零矢量</td>
+</tr>
+<tr>
+<td><code>100</code></td>
+<td><code>dH − dM</code></td>
+<td>只有 H 相上桥导通的有效矢量</td>
+</tr>
+<tr>
+<td><code>110</code></td>
+<td><code>dM − dL</code></td>
+<td>H、M 两相上桥导通的有效矢量</td>
+</tr>
+<tr>
+<td><code>111</code></td>
+<td><code>dL</code></td>
+<td>三相上桥都导通时的零矢量</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>100</code> 和 <code>110</code> 的身份由 H、M、L 当前分别是哪一相决定。这就是扇区法要找的两个相邻有效矢量。它们的作用时间等于上表的比例乘以 PWM 周期。min/max 居中还令 <code>dH+dL=1</code>，于是两种零矢量等分剩余时间。采用同一归一化和等分零矢量的对称扇区法时，理想 duty 可以逐相对上。工程只需求三相投影的最大、最小值，比较器会根据三个门槛自然形成相应的开关顺序，省去 <code>atan2</code>、显式判扇区和查表。</p>
+<h3 id="在模型里核对占空比">在模型里核对占空比</h3>
+<p>用已有的 Simulink 电压轨迹做一次对照。把同一段 αβ 和母线电压分别送到原来的扇区实现和按上面公式搭的 min/max 路径。两边采用相同的相序、电压尺度和限幅，先挑线性区内的区段观察。</p>
+<ul>
+<li><strong>先看相间差值。</strong> 并排看 <code>dU−dV</code>、<code>dV−dW</code>。它们乘以母线电压，就是理想周期平均线电压。差值对不上时，沿 αβ、三相投影和母线归一化向前查。</li>
+<li><strong>再看逐相 duty。</strong> 两边若使用相同的零矢量分配，逐相占空比也应对上。若差值一致、三相 duty 同时平移，回查模型的零矢量分配和公共偏移。</li>
+</ul>
+<h2 id="stm32-部署示例">STM32 部署示例</h2>
+<h3 id="在-cubemx-配好-pwm">在 CubeMX 配好 PWM</h3>
 <p>打开已有工程的 <code>.ioc</code>。下面以 <strong>STM32H743 的 TIM1</strong> 为例。换一款 STM32 时，先从目标芯片和板卡的引脚表找能输出所需 PWM 的定时器，核对它有多少组互补通道、是否支持死区、怎样触发 ADC。引脚位置、时钟倍频规则和触发路由都从目标工程重新确认。 <a href="00-project.html#软件操作手册">打开工程的方法</a> · <a href="reference.html#示例配置">CubeMX 示例参数摘录</a> · <a href="https://www.st.com/resource/en/application_note/an4013-stm32-crossseries-timer-overview-stmicroelectronics.pdf">ST 跨系列定时器概览 AN4013</a></p>
-<h3 id="先选时钟通道和引脚">先选时钟、通道和引脚</h3>
+<h4 id="先选时钟通道和引脚">先选时钟、通道和引脚</h4>
 <ol>
 <li>在 <strong>Clock Configuration</strong> 找到 TIM1 所在的定时器时钟分支。示例板的 APB2 时钟为 <strong>120 MHz</strong>，这套时钟配置给 TIM1 的实际时钟为 <strong>240 MHz</strong>。后面算频率用的是送进定时器的时钟。换芯片或改分频时，沿新的时钟树重新取值。</li>
 <li>回到 <strong>Pinout &amp; Configuration → Timers → TIM1</strong>。在 <strong>Mode</strong> 中选择 <strong>Internal Clock</strong>，并为 CH1、CH2、CH3 分别选带互补输出的 PWM 模式，例如 <strong>PWM Generation1 CH1 CH1N</strong>。一对 CHx/CHxN 对应一个桥臂的两路控制信号。</li>
 <li>在 Pinout 上核对通道和封装引脚。示例的 CH1/2/3 对应 PA8/PA9/PA10，CH1N/2N/3N 对应 PB13/PB14/PB15。对照板级接线确认哪一组是 U、V、W。生成代码里，时钟树在 <code>SystemClock_Config()</code>，引脚复用在 <code>HAL_TIM_MspPostInit()</code>。 <a href="source.html#core-src-main-c-l148">时钟初始化</a> · <a href="source.html#core-src-tim-c-l135">PWM 引脚初始化</a></li>
 </ol>
-<h3 id="再填-tim1-的参数">再填 TIM1 的参数</h3>
+<h4 id="再填-tim1-的参数">再填 TIM1 的参数</h4>
 <p>在 TIM1 的 <strong>Parameter Settings</strong> 按下面几组查。字段名称在不同工具版本里可能略有差别，可以用生成的 C 字段反查。</p>
 <div class="table-wrap"><table>
 <thead>
@@ -71,13 +139,13 @@
 <tr>
 <td>Channel 4 / Trigger Output</td>
 <td>CH4 选 <strong>PWM Generation4 No Output</strong>，模式 PWM1，Pulse = 1。TRGO 选 OC4REF，TRGO2 为 Reset</td>
-<td>CH4 使用自己的比较值，并且无需占用输出引脚。上数经过该比较值时，OC4REF 产生一次下降沿。本例的 ADC 选用这条边沿，详细采样时序留到 04。</td>
+<td>CH4 使用自己的比较值，并且无需占用输出引脚。上数经过该比较值时，OC4REF 产生一次下降沿。本例的 ADC 选用这条边沿，详细采样时序见 3.5。</td>
 </tr>
 </tbody>
 </table></div>
 <p>Counter Mode 里的 Up/Down 是单方向计数，Center Aligned 则在两个方向间往返。示例定时器的三种中心对齐模式共用往返计数方式，差别之一在于输出比较标志在哪个方向置位。Mode 3 会在两个方向置位。本例的 ADC 取 CH4 比较参考信号的下降沿。选择该边沿后，每个完整载波得到一次触发。 <a href="https://www.st.com/resource/en/reference_manual/rm0433-stm32h742-stm32h743-753-and-stm32h750-value-line-advanced-armbased-32bit-mcus-stmicroelectronics.pdf">H743 参考手册 RM0433</a> · <a href="source.html#core-src-adc-c">ADC 触发配置</a></p>
 <p>配完后按表核对 <code>MX_TIM1_Init()</code>。本工程随后在 <code>Board_Start()</code> 启动采样和 PWM 通道，并把功率输出留在停机状态。 <a href="source.html#core-src-tim-c-l44">定时器初始化</a> · <a href="https://www.st.com/resource/en/application_note/an4776-generalpurpose-timer-cookbook-for-stm32-microcontrollers-stmicroelectronics.pdf">定时器预装载参考</a> · <a href="source.html#bsp-board-c-l175">板级启动</a></p>
-<h2 id="2-从计数器看到引脚波形">2. 从计数器看到引脚波形</h2>
+<h3 id="从计数器看到引脚波形">从计数器看到引脚波形</h3>
 <p>把 <code>CNT</code> 想成 Simulink 里用来比较的三角载波。定时器从 0 数到 ARR 再数回 0，才走完一个载波周期。本例计数时钟为 <code>240 MHz/(PSC+1)</code>，一个周期走 <code>2×ARR</code> 个计数节拍，所以有</p>
 <pre><code class="language-text">f_pwm = f_tim / [(PSC + 1) × 2 × ARR]
       = 240 MHz / (1 × 2 × 6000) = 20 kHz
@@ -93,7 +161,7 @@ OCxREF      无效  ────────┘ 有效 ────────�
 <pre><code class="language-text">上数经过 CCR                              下数经过 CCR
 下桥导通 → 两路关断（死区）→ 上桥导通 → 两路关断（死区）→ 下桥导通
 </code></pre>
-<p>改 duty 时还有一条时间线。以本例在上数阶段提交为例，软件写入的是预装载值，峰顶更新事件才把它交给比较器。采样到写入的时间预算要看这个生效边界，后续的采样与中断专题会沿这条时序继续追。 <a href="reference.html#后续课程">后续课程</a></p>
+<p>改 duty 时还有一条时间线。以本例在上数阶段提交为例，软件写入的是预装载值，峰顶更新事件才把它交给比较器。采样到写入的时间预算要看这个生效边界，后续的采样与中断专题会沿这条时序继续追。 <a href="04-sampling-zero.html">3.5 采样、中断与电零点</a></p>
 <pre><code class="language-text">计数方向         上数，接近峰顶                         到峰顶并转为下数
 软件与硬件       软件写 CCR 预装载值 ─────────────────→ 更新事件锁存
 比较器使用       旧 CCR                                新 CCR
@@ -102,91 +170,24 @@ OCxREF      无效  ────────┘ 有效 ────────�
 <pre><code class="language-c">uint32_t compare = (uint32_t)((1.0f - duty[i]) * (float)TIM1-&gt;ARR);
 </code></pre>
 <p><code>duty[i]</code> 是第 <code>i</code> 相的占空比。这里的 <code>TIM1-&gt;ARR</code> 表示访问 TIM1 寄存器中的计数上限。忽略死区与整数截断时，PWM2 在每半程的有效区间为 <code>ARR−CCR</code>，所以比例是 <code>1−CCR/ARR</code>。反过来求 CCR，就得到源码里的 <code>(1-duty)×ARR</code>。结果转成整数后依次写进三路 CCR。换 PWM 模式或输出极性时，要按新的比较逻辑重新确认这一映射。 <a href="source.html#bsp-board-c-l104">比较值写入</a></p>
-<h2 id="3-从扇区法读懂-minmax-svpwm">3. 从扇区法读懂 min/max SVPWM</h2>
-<p>在你已有的 MATLAB Function 里，常见的输入是静止坐标系的 <code>v_alpha</code>、<code>v_beta</code> 和母线电压 <code>Vbus</code>。扇区法先找到附近的两个有效矢量，算出它们和零矢量各占一拍多少时间，再从开关序列得到三相 duty。这个工程把工作转到三相参考上。以下是同一个函数连续执行的两段代码。</p>
-<h3 id="先得到三相电压参考">先得到三相电压参考</h3>
-<p>进入 <code>Foc_VoltageStep()</code> 时，输入是 d/q 电压、给定电角和母线电压。控制对象地址为空时直接返回 <code>false</code>。有控制对象时，函数检查数值和母线条件，再把 d/q 矢量等比例限制在电机配置与母线共同允许的范围内。输入检查或限幅失败时，它把软件输出恢复到中性值并返回 <code>false</code>，运行分支据此处理停机。有效输入继续做逆 Park。 <a href="source.html#control-foc-c-l90">电压检查与限幅</a></p>
-<pre><code class="language-c">Foc_InversePark(vd, vq, angle, &amp;foc-&gt;alpha_voltage_V, &amp;foc-&gt;beta_voltage_V);
-float phase[3] = {
-    foc-&gt;alpha_voltage_V,
-    -0.5f * foc-&gt;alpha_voltage_V + 0.86602540378f * foc-&gt;beta_voltage_V,
-    -0.5f * foc-&gt;alpha_voltage_V - 0.86602540378f * foc-&gt;beta_voltage_V
-};
-</code></pre>
-<p><code>foc</code> 指向控制对象，<code>&amp;foc-&gt;alpha_voltage_V</code> 把字段的地址交给逆 Park，函数可以把结果写回来。读到写回的 αβ，就找到了原 MATLAB Function 的电压输入。接下来的三个表达式把同一支 αβ 电压箭头投影到相隔 120° 的三个轴上，依次得到 U、V、W 三相参考，单位是 V。逆 Park 使用给定电角的正余弦。 <a href="source.html#control-foc-c-l41">逆 Park 定义</a> · <a href="source.html#control-foc-c-l119">调用与三相投影</a></p>
-<h3 id="给三相加同一个偏移">给三相加同一个偏移</h3>
-<pre><code class="language-c">float minimum = fminf(phase[0], fminf(phase[1], phase[2]));
-float maximum = fmaxf(phase[0], fmaxf(phase[1], phase[2]));
-/* 给三相同时加入相同零序电压，不改变线电压，即min/max形式SVPWM。 */
-float center = 0.5f * (minimum + maximum);
-for (unsigned i = 0; i &lt; 3U; ++i)
-    foc-&gt;duty[i] = Clamp(0.5f + (phase[i] - center) / bus_voltage_V, 0.0f, 1.0f);
-return true;
-</code></pre>
-<ol>
-<li><code>minimum</code> 和 <code>maximum</code> 找出当前这一拍的最低、最高相参考，<code>center</code> 取两者的中点。</li>
-<li>三相都减去 <code>center</code> 后，最高和最低值关于 0 对称。相减时公共偏移抵消，例如 <code>(vU−center)−(vV−center)=vU−vV</code>。所以这一步能安排三相脉冲的公共部分，同时保留电机端的线电压指令。</li>
-<li>每相再除以 <code>bus_voltage_V</code>，把电压变成比例。加上 0.5 后写入 <code>duty[i]</code>，<code>Clamp</code> 把它限制到 0～1。三相算完，<code>return true</code> 回到调用处。 <a href="source.html#control-foc-c-l125">调制源码</a></li>
-</ol>
-<h3 id="为什么这和你熟悉的扇区法能对上">为什么这和你熟悉的扇区法能对上</h3>
-<p>用 <strong>H、M、L</strong> 表示本拍 duty 从大到小的三个相，字母随矢量角度改变。对同一条中心对齐载波，较大的 duty 覆盖较小的 duty。在线性调制范围内、忽略死区与计数取整，按 H/M/L 的顺序看上桥状态，会出现以下四种组合。</p>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>上桥状态</th>
-<th>整拍占比</th>
-<th>在扇区法里对应什么</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>000</code></td>
-<td><code>1 − dH</code></td>
-<td>三相上桥都关闭时的零矢量</td>
-</tr>
-<tr>
-<td><code>100</code></td>
-<td><code>dH − dM</code></td>
-<td>只有 H 相上桥导通的有效矢量</td>
-</tr>
-<tr>
-<td><code>110</code></td>
-<td><code>dM − dL</code></td>
-<td>H、M 两相上桥导通的有效矢量</td>
-</tr>
-<tr>
-<td><code>111</code></td>
-<td><code>dL</code></td>
-<td>三相上桥都导通时的零矢量</td>
-</tr>
-</tbody>
-</table></div>
-<p><code>100</code> 和 <code>110</code> 的身份由 H、M、L 当前分别是哪一相决定。这就是扇区法要找的两个相邻有效矢量。它们的作用时间等于上表的比例乘以 PWM 周期。min/max 居中还令 <code>dH+dL=1</code>，于是两种零矢量等分剩余时间。采用同一归一化和等分零矢量的对称扇区法时，理想 duty 可以逐相对上。工程只需求三相投影的最大、最小值，比较器会根据三个门槛自然形成相应的开关顺序，省去 <code>atan2</code>、显式判扇区和查表。</p>
-<h2 id="4-在模型里对照再准备第一次开环">4. 在模型里对照，再准备第一次开环</h2>
-<p>用已有的 Simulink 电压轨迹做一次对照。把同一段 αβ 和母线电压分别送到原来的扇区实现和按上面公式搭的 min/max 路径。两边采用相同的相序、电压尺度和限幅，先挑线性区内的区段观察。</p>
-<ul>
-<li><strong>先看相间差值。</strong> 并排看 <code>dU−dV</code>、<code>dV−dW</code>。它们乘以母线电压，就是理想周期平均线电压。差值对不上时，沿 αβ、三相投影和母线归一化向前查。</li>
-<li><strong>再看逐相 duty。</strong> 两边若使用相同的零矢量分配，逐相占空比也应对上。若差值一致、三相 duty 同时平移，回查模型的零矢量分配和公共偏移。随后用本章的 PWM2 映射，把 duty 对到 CCR 和比较器有效区间。</li>
-<li><strong>在源码里找落点。</strong> LAB1 的固定测试参数会调用 <code>Foc_VoltageStep()</code>，随后把 <code>foc.duty</code> 交给 <code>Board_PwmProbeIsr()</code>。这个路径维持功率驱动关闭。3.3 继续用同一个调制函数，换成可调给定、实际母线和受保护的功率桥输出。 <a href="source.html#app-motor-app-c-l498">LAB1 分支</a> · <a href="source.html#bsp-board-c-l137">引脚输出接口</a></li>
-</ul>
+<h3 id="从算法输出接到引脚">从算法输出接到引脚</h3>
+<p>LAB1 的固定测试参数会调用 <code>Foc_VoltageStep()</code>，随后把 <code>foc.duty</code> 交给 <code>Board_PwmProbeIsr()</code>。这个路径维持功率驱动关闭。3.3 继续用同一个调制函数，换成可调给定、实际母线和受保护的功率桥输出。 <a href="source.html#app-motor-app-c-l498">LAB1 分支</a> · <a href="source.html#bsp-board-c-l137">引脚输出接口</a></p>
 <p>开始 3.3 前，准备好目标板的三组 PWM 与相线对应关系、驱动器的有效电平与关断条件、控制侧供电和调试器接法。若用另一款 STM32，先在它的 CubeMX 工程和板级实现中逐项对照本章的时钟、通道、极性、死区与触发设置。 <a href="reference.html#示例配置">板级配置检查表</a> · <a href="02-open-loop.html">下一节 3.3 开环部署</a></p>
 <div class="pager"><a href="00-project.html"><small>上一页</small>3.1 工程启动</a><a href="02-open-loop.html"><small>下一页</small>3.3 电压开环部署</a></div>
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>
-<li><a href="#1-在-cubemx-配好-pwm">1. 在 CubeMX 配好 PWM</a><ul>
-<li><a href="#先选时钟通道和引脚">先选时钟、通道和引脚</a></li>
-<li><a href="#再填-tim1-的参数">再填 TIM1 的参数</a></li>
+<li><a href="#通用-foc-部署">通用 FOC 部署</a><ul>
+<li><a href="#从扇区法读懂-minmax-svpwm">从扇区法读懂 min/max SVPWM</a></li>
+<li><a href="#在模型里核对占空比">在模型里核对占空比</a></li>
 </ul>
 </li>
-<li><a href="#2-从计数器看到引脚波形">2. 从计数器看到引脚波形</a></li>
-<li><a href="#3-从扇区法读懂-minmax-svpwm">3. 从扇区法读懂 min/max SVPWM</a><ul>
-<li><a href="#先得到三相电压参考">先得到三相电压参考</a></li>
-<li><a href="#给三相加同一个偏移">给三相加同一个偏移</a></li>
-<li><a href="#为什么这和你熟悉的扇区法能对上">为什么这和你熟悉的扇区法能对上</a></li>
+<li><a href="#stm32-部署示例">STM32 部署示例</a><ul>
+<li><a href="#在-cubemx-配好-pwm">在 CubeMX 配好 PWM</a></li>
+<li><a href="#从计数器看到引脚波形">从计数器看到引脚波形</a></li>
+<li><a href="#从算法输出接到引脚">从算法输出接到引脚</a></li>
 </ul>
 </li>
-<li><a href="#4-在模型里对照再准备第一次开环">4. 在模型里对照，再准备第一次开环</a></li>
 </ul>
 </div>
 </aside>

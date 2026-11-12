@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
+<title>3.7 PI 电流闭环 · FOC 部署 Wiki</title>
+<link rel="stylesheet" href="assets/wiki.css">
+<script src="assets/search-index.js" defer></script>
+<script src="assets/wiki.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#article">跳到正文</a>
+<header class="masthead"><div class="masthead-inner">
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
+</div></header>
+<div class="shell">
+<aside class="sidebar">
+<form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
+<div class="search-results" aria-live="polite" hidden></div>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与电零点</a><a href="05-transforms.html">3.6 坐标变换与开环验算</a><a href="06-current-pi.html" aria-current="page">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+</aside>
+<main class="article" id="article">
+<header class="article-header"><span class="eyebrow">第 3 章 · 3.7</span><h1>3.7 PI 电流闭环</h1></header>
+<p><a href="05-transforms.html">上一节 3.6 坐标变换与开环验算</a> · <a href="06a-software-architecture.html">下一节 3.8 从一拍控制理解软件分层</a></p>
+<h2 id="通用-foc-部署">通用 FOC 部署</h2>
+<h3 id="从模型的电流误差找到-c-中的两只-pi">从模型的电流误差找到 C 中的两只 PI</h3>
+<p>把模型里手动给定的 Vd/Vq 换成电流控制器的输出。实测三相电流经 Clarke、Park 得到 Id/Iq，用各自的目标减去反馈，得到两轴误差。示例在 Current 状态把命令写进控制对象，随后把本拍反馈电角和实测母线交给电流环。</p>
+<p><strong>源码摘录</strong>。ADC 采样已换算为 A，<code>Foc_Measure</code> 已更新反馈，母线与状态检查已通过。这里省略了开环、标定和速度等其他分支。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L541">电流环调用</a></p>
+<pre><code class="language-c">if (state == APP_CURRENT)
+{
+    foc.id_ref_A = reference.id_A;
+    foc.iq_ref_A = reference.iq_A;
+}
+ok = ok &amp;&amp; Foc_CurrentStep(&amp;foc, angle, bus);
+</code></pre>
+<p><code>reference</code> 保存应用接受的最新命令，反馈在每拍重算。<code>ok &amp;&amp;</code> 先检查之前的操作是否成功，通过后才进入 <code>Foc_CurrentStep</code>。函数取目标和反馈，算出本拍电压及 duty，再把结果和是否成功交还给应用。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L134">电流环定义</a></p>
+<h3 id="从电机参数得到第一组-pi-系数">从电机参数得到第一组 PI 系数</h3>
+<p>先用低速的每轴电流近似 <code>v = R·i + L·di/dt</code>。它的电压到电流传递函数为 <code>1/(Ls+R)</code>。PI 的传递函数为 <code>Kp + Ki/s</code>。令 <code>Ki/Kp = R/L</code>，在这个简化模型中，PI 的零点抵消电流对象的极点，剩下的理想闭环是一阶，带宽为 <code>Kp/L</code>。选定带宽 <code>ωc</code> 后，用 <code>Kp = L·ωc</code>、<code>Ki = R·ωc</code> 起步。d、q 轴用各自的电感，同用相电阻。反电动势、轴间耦合、采样和计算延迟都会影响实机的响应，需要用小电流阶跃核对。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>量</th>
+<th>C 中如何使用</th>
+<th>单位及默认 GB7215 例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>比例系数 Kp</td>
+<td>初始化 <code>id_pi.kp</code>、<code>iq_pi.kp</code>，每拍乘对应的误差</td>
+<td>V/A。L = 0.00073 H、ωc = 1000 rad/s，得到 0.73 V/A</td>
+</tr>
+<tr>
+<td>积分系数 Ki</td>
+<td>初始化两轴 <code>pi.ki</code>，每拍乘误差和控制周期</td>
+<td>V/(A·s)。R = 1.3 Ω，得到 1300 V/(A·s)</td>
+</tr>
+<tr>
+<td>控制周期 Ts</td>
+<td><code>FOC_CURRENT_DT_S</code>，每次积分乘一次</td>
+<td>1/20000 s = 50 μs，故 Ki·Ts = 0.065 V/A</td>
+</tr>
+<tr>
+<td>积分状态</td>
+<td><code>pi.integral</code>，跨拍保留，停机或故障时清零</td>
+<td>V。可以直接与比例项相加</td>
+</tr>
+</tbody>
+</table></div>
+<p>在模型中对照离散步长与积分顺序。示例把连续 Ki 保存为 1300，再在每拍乘 Ts。如果模型的离散块已把 Ki·Ts 预乘到系数中，核对单拍增量时只乘一次 Ts。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L55">初始化和复位</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/motor_config.h#L25">电机参数</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/lab_config.h#L24">周期定义</a></p>
+<h3 id="跟一拍离散积分限幅和调制">跟一拍离散积分、限幅和调制</h3>
+<p>函数入口检查反馈角、目标、反馈、运行限流和母线是否有效。它先限制电流目标，GB7215 的 Id 上限为 ±5 A，Current 进入时 Iq 运行限流为 ±1 A。接着从目标减反馈，两轴各计算候选积分和未限幅的电压。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L134">电流目标与电压计算</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L150">模式切换初始化</a></p>
+<p><strong>源码摘录</strong>。展示 q 轴对应的计算行，d 轴和后续检查见链接中的完整函数。</p>
+<pre><code class="language-c">float next_q = foc-&gt;iq_pi.integral + foc-&gt;iq_pi.ki * FOC_CURRENT_DT_S * eq;
+float raw_q = foc-&gt;iq_pi.kp * eq + next_q;
+</code></pre>
+<p><code>next_q</code> 是这拍的候选积分，<code>raw_q</code> 是用候选积分得到的电压。此时历史积分还未更新。两轴共用一个电压圆，半径取 <code>min(12 V, 0.95·Vbus/√3)</code>。Vbus 为 24 V 时取 12 V。如果未限制的电压为 <code>(9, 12) V</code>，模长 15 V，给两轴同时乘 12/15，得到 <code>(7.2, 9.6) V</code>，保留了电压方向。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L90">电压上限和矢量缩放</a></p>
+<p><strong>源码摘录</strong>。矢量试限幅后，<code>vd/vq</code> 保存试限幅结果。</p>
+<pre><code class="language-c">if (ed * (raw_d - vd) &lt;= 0.0f) foc-&gt;id_pi.integral = Clamp(next_d, -limit, limit);
+if (eq * (raw_q - vq) &lt;= 0.0f) foc-&gt;iq_pi.integral = Clamp(next_q, -limit, limit);
+vd = foc-&gt;id_pi.kp * ed + foc-&gt;id_pi.integral;
+vq = foc-&gt;iq_pi.kp * eq + foc-&gt;iq_pi.integral;
+return Foc_VoltageStep(foc, angle, vd, vq, bus_voltage_V);
+</code></pre>
+<ol>
+<li><code>raw_q - vq</code> 是试限幅去掉的 q 轴电压。没限到时差为零，允许更新积分。限到后，如果误差仍把电压往同一方向推，乘积为正，保留旧积分。如果误差反向，允许积分往回退。</li>
+<li>d 轴也按自己的误差与被削掉的电压判断。接受的新积分还要限制到 <code>[-limit, limit]</code>。这就是本工程的条件积分抗饱和。</li>
+<li>用实际保存的两个积分重算 Vd/Vq，交给 <code>Foc_VoltageStep</code>。它再次检查并限制电压，接着沿 3.2 的逆 Park 和 SVPWM 得到三相 duty。最终返回值回到应用调用行。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L158">积分写回</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L108">电压到 duty</a></li>
+</ol>
+<p><strong>手算输入</strong>。默认 GB7215，母线 24 V，反馈电角 0，三相 ADC 读数等于零偏，旧积分为 0，目标 <code>Id=0 A、Iq=0.1 A</code>。这组值用于模型和 C 的离线对照。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>计算位置</th>
+<th>第一拍结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ADC 减零偏后，经 Clarke/Park</td>
+<td>三相 0 A，Id 和 Iq 都为 0 A</td>
+</tr>
+<tr>
+<td>目标减反馈，候选积分</td>
+<td>ed = 0 A、eq = 0.1 A，q 轴候选积分 0.0065 V</td>
+</tr>
+<tr>
+<td>比例项加积分</td>
+<td>Vd = 0 V、Vq = 0.0795 V，电压未限幅</td>
+</tr>
+<tr>
+<td>逆 Park、SVPWM</td>
+<td>duty 约为 <code>[0.500000, 0.502869, 0.497131]</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>再单独核对饱和分支。取 <code>ed=0</code>、<code>eq=1 A</code>、旧 q 积分 11.5 V，其余条件相同。候选积分为 11.565 V，未限制 Vq 为 12.295 V。试限幅到 12 V 后，<code>eq·(raw_q−vq)</code> 为正，积分保留 11.5 V。用它重算的 12.23 V 在调制前再次限到 12 V。用模型的同一组输入核对候选积分、保存的积分和最终电压。</p>
+<h2 id="stm32-部署示例">STM32 部署示例</h2>
+<h3 id="同一拍把-duty-交给-tim1">同一拍把 duty 交给 TIM1</h3>
+<p><strong>执行示意</strong>。沿 3.5 的触发和三相帧汇合进入应用，电流运算成功后才尝试写定时器。</p>
+<pre><code class="language-text">ADC 帧 → 减零偏并换算 A → Clarke/Park → 电流 PI
+      → 电压矢量限幅 → 逆 Park/SVPWM → duty → TIM1 CCR1/2/3
+</code></pre>
+<p><strong>源码摘录</strong>。这是运行分支末尾。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L548">应用提交</a></p>
+<pre><code class="language-c">if (running() &amp;&amp; (!ok || !Board_ApplyDutyIsr(foc.duty)))
+    MotorApp_FaultIsr(APP_FAULT_SAMPLE);
+</code></pre>
+<p><code>running()</code> 为真且算法成功时，应用才调用板级提交。BSP 检查 duty 的范围和有限性，然后在短临界区检查驱动就绪、故障脚、计数方向和截止点。通过后按 PWM2 的极性将 <code>(1−duty)×ARR</code> 截断成整数，依次写三个 CCR，再打开 TIM1 总输出允许。本页手算的 duty 对应 <code>3000、2982、3017</code>。预装载值在更新事件生效。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L104">板级提交和 CCR 写入</a></p>
+<p>TIM1 以 240 MHz 中心对齐计数，上数到 6000 需 25 μs，下数再需 25 μs。<strong>50 μs 是 PI 周期</strong>。CH4 在接近底端的上数 1 触发 ADC，CCR 提交要求上数且 <code>CNT &lt; 5520</code>，给上端点预留 480 格即 2 μs。从底端到门槛约 23 μs，这段预算包含采样、转换、中断和计算。3.5 的三相回调还有独立的到齐检查。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/tim.c#L30">TIM1 配置</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L298">三相汇合</a></p>
+<p>假设 duty 合法、驱动正常且计数向上。提交时 <code>CNT=5000</code> 会写入 CCR，函数返回 true，应用继续记录诊断。到 <code>CNT=5520</code> 时板级拒绝写入并返回 false，应用报采样故障。算法提前返回 false 时，<code>!ok</code> 让本拍跳过板级提交，同样走关桥。故障处理会清目标和积分。若三相换算时已发现过流，关桥在前，运行状态检查会阻止本拍提交。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L53">故障与复位</a></p>
+<h3 id="用阶跃核对参考反馈和饱和">用阶跃核对参考、反馈和饱和</h3>
+<p>在电脑用表中的同一组电流、角度、母线和初值对照模型与 C。已有配套工程的读者也可以运行 <code>python tools/check.py</code>。实机用 LAB5（<code>LAB_CURRENT_PI</code>），先确认电零位有效、开环方向与电流极性已核对。按 3.3 的条件准备低电压、限流、短时启停。先运行离线命令观察报文，再决定是否按实物步骤发送。</p>
+<pre><code class="language-powershell">python tools/can_demo.py current --id 0 --iq 0.1 --duration 1
+</code></pre>
+<p>JustFloat 的六通道依次为 <code>Id_ref, Id, Iq_ref, Iq, Vd, Vq</code>。检查 Iq 是否朝参考方向移动、Id 是否回到接近目标、Vd/Vq 的矢量是否持续碰到电压限制。出现持续顶限、反向或振荡时先停机，回查相序、反馈极性、零位与参数。固定 Iq 会产生力矩，空载可能加速，关注速度与停机条件。遥测以名义 1 kHz 观察趋势，逐拍时序须另量 ADC 触发到提交，并结合 <code>max_isr_cycles</code> 判断应用耗时。实板结果待记录。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L442">遥测定义</a> · <a href="02-open-loop.html">启停与观察步骤</a> · <a href="reference.html#验证记录">验证记录</a></p>
+<div class="pager"><a href="05-transforms.html"><small>上一页</small>3.6 坐标变换与开环验算</a><a href="06a-software-architecture.html"><small>下一页</small>3.8 软件分层</a></div>
+</main>
+<aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
+<ul>
+<li><a href="#通用-foc-部署">通用 FOC 部署</a><ul>
+<li><a href="#从模型的电流误差找到-c-中的两只-pi">从模型的电流误差找到 C 中的两只 PI</a></li>
+<li><a href="#从电机参数得到第一组-pi-系数">从电机参数得到第一组 PI 系数</a></li>
+<li><a href="#跟一拍离散积分限幅和调制">跟一拍离散积分、限幅和调制</a></li>
+</ul>
+</li>
+<li><a href="#stm32-部署示例">STM32 部署示例</a><ul>
+<li><a href="#同一拍把-duty-交给-tim1">同一拍把 duty 交给 TIM1</a></li>
+<li><a href="#用阶跃核对参考反馈和饱和">用阶跃核对参考、反馈和饱和</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</aside>
+</div>
+<footer class="footer">FOC 部署 Wiki · 仿真、固件和实物</footer>
+</body>
+</html>

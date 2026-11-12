@@ -2,9 +2,44 @@
 
 [课程首页](index.md) · [软件操作手册](#软件操作手册) · [下一节 3.2 从 Simulink 占空比到 STM32 PWM](01-pwm-svpwm.md)
 
-在 Simulink 里，控制模型按设定步长更新。把它部署到 STM32 时，程序先要配置时钟、引脚和外设，再启动采样与输出。这一页沿 H743 示例的 `main()` 找到两段代码接上的地方。
+在 Simulink 里，点击运行后模型按设定步长更新。实际设备上电后，固件要自己准备输入和输出、进入安全的初始状态，再启动定时执行。这一节从 `main()` 读懂应用怎样接手，再看 STM32 怎样准备外设。
 
-**源码摘录 1｜CubeMX 生成的入口节选**
+## 通用 FOC 部署
+
+打开示例的 `int main(void)`。这是 C 程序入口。`int` 是返回类型，`void` 表示无参数。先在函数里找到下面这段，外设初始化完成后，应用从这里接手。 [打开 main.c](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/main.c#L73)
+
+**源码摘录 1｜外设配置结束后的手写启动调用**
+
+~~~c
+  if (!Board_Init() ||
+      !MotorApp_Init() ||
+      !Board_Start())
+  {
+    Error_Handler();
+  }
+~~~
+
+`名字()` 表示调用函数。`if` 计算括号中的条件，条件为真才执行花括号内的语句。这里按顺序检查板级准备、初始化应用状态、启动采样和定时器通道。`!` 把返回的真假反过来，`||` 表示「或」。例如 `Board_Init()` 返回 `false` 时，第一个条件成立，后两个调用跳过，程序进入 `Error_Handler()` 关桥并停留在错误处理循环。三个返回值均为 `true` 时，`main()` 继续进入后台。 [板级准备](source.md#bsp-board-c-l144) · [应用初始化](source.md#app-motor-app-c-l72) · [启动采样与通道](source.md#bsp-board-c-l175) · [错误处理](source.md#core-src-main-c-l265)
+
+**源码摘录 2｜启动成功后的后台循环**
+
+~~~c
+  /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+    MotorApp_Background();
+  }
+  /* USER CODE END 3 */
+~~~
+
+`while (1)` 的条件始终成立，`MotorApp_Background()` 每次返回后便开始下一次循环，继续处理通信与维护。模型中每隔一个步长运行的控制计算，在固件里由采样事件启动。可以把后台理解成等候采样的间隙里继续运行的工作。 [后台调用处](source.md#core-src-main-c-l133) · [后台函数](source.md#app-motor-app-c-l575) · [3.5 采样时序](04-sampling-zero.md)
+
+## STM32 部署示例
+
+**源码摘录 3｜应用接手之前执行的 STM32 初始化**
 
 ~~~c
 int main(void)
@@ -19,40 +54,11 @@ int main(void)
   MX_TIM1_Init();
 ~~~
 
-`int main(void)` 定义入口函数，`int` 声明整数返回类型，`void` 表示它不接收参数。芯片的启动代码准备好 C 运行环境后进入这个函数。花括号内的 `名字()` 是调用，执行完函数会回到下一行。上面省略了生成器的注释，摘录到 TIM1 为止。 [启动入口](source.md#core-src-main-c-l73)
+芯片的启动代码准备好 C 运行环境后进入这个函数。上面省略了生成器的注释，摘录到 TIM1 为止。其余外设初始化完成后，接着执行前面读过的三个手写调用。 [启动入口](source.md#core-src-main-c-l73)
 
 前两句配置内存访问规则与指令缓存。`HAL_Init()` 准备 ST 的硬件访问库。时钟配置完成后，`MX_…_Init()` 依次配置引脚、DMA 数据搬运和定时器等外设。CubeMX 根据 `.ioc` 生成这些设置。3.2 从 `MX_TIM1_Init()` 跳进定时器的定义。 [CubeMX 示例参数摘录](reference.md#示例配置) · [TIM1 初始化](source.md#core-src-tim-c-l30)
 
-**源码摘录 2｜外设配置结束后的手写启动调用**
-
-~~~c
-  if (!Board_Init() ||
-      !MotorApp_Init() ||
-      !Board_Start())
-  {
-    Error_Handler();
-  }
-~~~
-
-这里按顺序检查板级准备、初始化应用状态、启动采样和定时器通道。`!` 把返回的真假反过来，`||` 表示「或」。例如 `Board_Init()` 返回 `false` 时，第一个条件成立，后两个调用跳过，程序进入 `Error_Handler()` 关桥并停留在错误处理循环。三个返回值均为 `true` 时，`main()` 继续进入后台。 [板级准备](source.md#bsp-board-c-l144) · [应用初始化](source.md#app-motor-app-c-l72) · [启动采样与通道](source.md#bsp-board-c-l175) · [错误处理](source.md#core-src-main-c-l265)
-
-**源码摘录 3｜后台循环与用户代码区域**
-
-~~~c
-  /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-    MotorApp_Background();
-  }
-  /* USER CODE END 3 */
-~~~
-
-`while (1)` 的条件始终成立，`MotorApp_Background()` 每次返回后便开始下一次循环，继续处理通信与维护。控制计算的采样节拍会在后续采样与中断专题解释。 [后台调用处](source.md#core-src-main-c-l133) · [后台函数](source.md#app-motor-app-c-l575)
-
-`USER CODE BEGIN` 和 `END` 是 CubeMX 用来识别保留区域的注释。上面的后台调用位于 `USER CODE 3` 区域，三个手写启动调用位于前面的 `USER CODE 2`。开启 **Keep User Code when re-generating** 后，重新生成会保留这些区域中的代码。这些调用的定义维护在 `bsp/` 和 `app/`，控制算法另放在 `control/`。读完电流环后，后续的软件分层专题会把各目录的职责串起来。 [启动保留区域](source.md#core-src-main-c-l118) · [副本再生成步骤](#在副本重新生成) · [后续课程](reference.md#后续课程)
+`USER CODE BEGIN` 和 `END` 是 CubeMX 用来识别保留区域的注释。上面的后台调用位于 `USER CODE 3` 区域，三个手写启动调用位于前面的 `USER CODE 2`。开启 **Keep User Code when re-generating** 后，重新生成会保留这些区域中的代码。这些调用的定义维护在 `bsp/` 和 `app/`，控制算法另放在 `control/`。读完电流环后，后续的软件分层专题会把各目录的职责串起来。 [启动保留区域](source.md#core-src-main-c-l118) · [副本再生成步骤](#在副本重新生成) · [3.8 从一拍控制理解软件分层](06a-software-architecture.md)
 
 [继续读 3.2 的 TIM1 和三相 PWM](01-pwm-svpwm.md)
 

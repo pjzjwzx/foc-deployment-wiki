@@ -17,10 +17,18 @@ PAGES = {
     '00-project': ('3.1 工程启动', '第 3 章 · 3.1'),
     '01-pwm-svpwm': ('3.2 PWM 与 SVPWM', '第 3 章 · 3.2'),
     '02-open-loop': ('3.3 电压开环部署', '第 3 章 · 3.3'),
+    '03-sensors': ('3.4 电流与角度传感器', '第 3 章 · 3.4'),
+    '04-sampling-zero': ('3.5 采样、中断与电零点', '第 3 章 · 3.5'),
+    '05-transforms': ('3.6 坐标变换与开环验算', '第 3 章 · 3.6'),
+    '06-current-pi': ('3.7 PI 电流闭环', '第 3 章 · 3.7'),
+    '06a-software-architecture': ('3.8 软件分层', '第 3 章 · 3.8'),
+    '07-speed': ('3.9 速度估计与速度闭环', '第 3 章 · 3.9'),
+    '08-can-mit': ('3.10 CAN MIT', '第 3 章 · 3.10'),
+    '09-lut': ('3.11 开环 LUT 标定', '第 3 章 · 3.11'),
     'reference': ('配置与验证参考', '附录'),
     'source': ('源码定位', '附录'),
 }
-READING = ['index', '00-project', '01-pwm-svpwm', '02-open-loop', 'reference']
+READING = [page for page in PAGES if page != 'source']
 DIST = ROOT / 'docs'
 
 
@@ -33,7 +41,7 @@ def nav(current):
     out = ['<nav aria-label="课程导航">']
     for key, (name, _) in PAGES.items():
         if key in ('00-project', 'reference'):
-            heading = '第 3 章 · STM32 部署' if key == '00-project' else '附录'
+            heading = '第 3 章 · FOC 实际部署' if key == '00-project' else '附录'
             out.append(f'<div class="nav-heading">{heading}</div>')
         marker = ' aria-current="page"' if key == current else ''
         out.append(f'<a href="{key}.html"{marker}>{name}</a>')

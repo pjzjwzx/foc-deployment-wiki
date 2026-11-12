@@ -18,13 +18,37 @@
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · STM32 部署</div><a href="00-project.html" aria-current="page">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html" aria-current="page">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与电零点</a><a href="05-transforms.html">3.6 坐标变换与开环验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
 <header class="article-header"><span class="eyebrow">第 3 章 · 3.1</span><h1>3.1 看懂工程怎样启动</h1></header>
 <p><a href="index.html">课程首页</a> · <a href="#软件操作手册">软件操作手册</a> · <a href="01-pwm-svpwm.html">下一节 3.2 从 Simulink 占空比到 STM32 PWM</a></p>
-<p>在 Simulink 里，控制模型按设定步长更新。把它部署到 STM32 时，程序先要配置时钟、引脚和外设，再启动采样与输出。这一页沿 H743 示例的 <code>main()</code> 找到两段代码接上的地方。</p>
-<p><strong>源码摘录 1｜CubeMX 生成的入口节选</strong></p>
+<p>在 Simulink 里，点击运行后模型按设定步长更新。实际设备上电后，固件要自己准备输入和输出、进入安全的初始状态，再启动定时执行。这一节从 <code>main()</code> 读懂应用怎样接手，再看 STM32 怎样准备外设。</p>
+<h2 id="通用-foc-部署">通用 FOC 部署</h2>
+<p>打开示例的 <code>int main(void)</code>。这是 C 程序入口。<code>int</code> 是返回类型，<code>void</code> 表示无参数。先在函数里找到下面这段，外设初始化完成后，应用从这里接手。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/main.c#L73">打开 main.c</a></p>
+<p><strong>源码摘录 1｜外设配置结束后的手写启动调用</strong></p>
+<pre><code class="language-c">  if (!Board_Init() ||
+      !MotorApp_Init() ||
+      !Board_Start())
+  {
+    Error_Handler();
+  }
+</code></pre>
+<p><code>名字()</code> 表示调用函数。<code>if</code> 计算括号中的条件，条件为真才执行花括号内的语句。这里按顺序检查板级准备、初始化应用状态、启动采样和定时器通道。<code>!</code> 把返回的真假反过来，<code>||</code> 表示「或」。例如 <code>Board_Init()</code> 返回 <code>false</code> 时，第一个条件成立，后两个调用跳过，程序进入 <code>Error_Handler()</code> 关桥并停留在错误处理循环。三个返回值均为 <code>true</code> 时，<code>main()</code> 继续进入后台。 <a href="source.html#bsp-board-c-l144">板级准备</a> · <a href="source.html#app-motor-app-c-l72">应用初始化</a> · <a href="source.html#bsp-board-c-l175">启动采样与通道</a> · <a href="source.html#core-src-main-c-l265">错误处理</a></p>
+<p><strong>源码摘录 2｜启动成功后的后台循环</strong></p>
+<pre><code class="language-c">  /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+    MotorApp_Background();
+  }
+  /* USER CODE END 3 */
+</code></pre>
+<p><code>while (1)</code> 的条件始终成立，<code>MotorApp_Background()</code> 每次返回后便开始下一次循环，继续处理通信与维护。模型中每隔一个步长运行的控制计算，在固件里由采样事件启动。可以把后台理解成等候采样的间隙里继续运行的工作。 <a href="source.html#core-src-main-c-l133">后台调用处</a> · <a href="source.html#app-motor-app-c-l575">后台函数</a> · <a href="04-sampling-zero.html">3.5 采样时序</a></p>
+<h2 id="stm32-部署示例">STM32 部署示例</h2>
+<p><strong>源码摘录 3｜应用接手之前执行的 STM32 初始化</strong></p>
 <pre><code class="language-c">int main(void)
 {
   MPU_Config();
@@ -36,30 +60,9 @@
   MX_DMA_Init();
   MX_TIM1_Init();
 </code></pre>
-<p><code>int main(void)</code> 定义入口函数，<code>int</code> 声明整数返回类型，<code>void</code> 表示它不接收参数。芯片的启动代码准备好 C 运行环境后进入这个函数。花括号内的 <code>名字()</code> 是调用，执行完函数会回到下一行。上面省略了生成器的注释，摘录到 TIM1 为止。 <a href="source.html#core-src-main-c-l73">启动入口</a></p>
+<p>芯片的启动代码准备好 C 运行环境后进入这个函数。上面省略了生成器的注释，摘录到 TIM1 为止。其余外设初始化完成后，接着执行前面读过的三个手写调用。 <a href="source.html#core-src-main-c-l73">启动入口</a></p>
 <p>前两句配置内存访问规则与指令缓存。<code>HAL_Init()</code> 准备 ST 的硬件访问库。时钟配置完成后，<code>MX_…_Init()</code> 依次配置引脚、DMA 数据搬运和定时器等外设。CubeMX 根据 <code>.ioc</code> 生成这些设置。3.2 从 <code>MX_TIM1_Init()</code> 跳进定时器的定义。 <a href="reference.html#示例配置">CubeMX 示例参数摘录</a> · <a href="source.html#core-src-tim-c-l30">TIM1 初始化</a></p>
-<p><strong>源码摘录 2｜外设配置结束后的手写启动调用</strong></p>
-<pre><code class="language-c">  if (!Board_Init() ||
-      !MotorApp_Init() ||
-      !Board_Start())
-  {
-    Error_Handler();
-  }
-</code></pre>
-<p>这里按顺序检查板级准备、初始化应用状态、启动采样和定时器通道。<code>!</code> 把返回的真假反过来，<code>||</code> 表示「或」。例如 <code>Board_Init()</code> 返回 <code>false</code> 时，第一个条件成立，后两个调用跳过，程序进入 <code>Error_Handler()</code> 关桥并停留在错误处理循环。三个返回值均为 <code>true</code> 时，<code>main()</code> 继续进入后台。 <a href="source.html#bsp-board-c-l144">板级准备</a> · <a href="source.html#app-motor-app-c-l72">应用初始化</a> · <a href="source.html#bsp-board-c-l175">启动采样与通道</a> · <a href="source.html#core-src-main-c-l265">错误处理</a></p>
-<p><strong>源码摘录 3｜后台循环与用户代码区域</strong></p>
-<pre><code class="language-c">  /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-    MotorApp_Background();
-  }
-  /* USER CODE END 3 */
-</code></pre>
-<p><code>while (1)</code> 的条件始终成立，<code>MotorApp_Background()</code> 每次返回后便开始下一次循环，继续处理通信与维护。控制计算的采样节拍会在后续采样与中断专题解释。 <a href="source.html#core-src-main-c-l133">后台调用处</a> · <a href="source.html#app-motor-app-c-l575">后台函数</a></p>
-<p><code>USER CODE BEGIN</code> 和 <code>END</code> 是 CubeMX 用来识别保留区域的注释。上面的后台调用位于 <code>USER CODE 3</code> 区域，三个手写启动调用位于前面的 <code>USER CODE 2</code>。开启 <strong>Keep User Code when re-generating</strong> 后，重新生成会保留这些区域中的代码。这些调用的定义维护在 <code>bsp/</code> 和 <code>app/</code>，控制算法另放在 <code>control/</code>。读完电流环后，后续的软件分层专题会把各目录的职责串起来。 <a href="source.html#core-src-main-c-l118">启动保留区域</a> · <a href="#在副本重新生成">副本再生成步骤</a> · <a href="reference.html#后续课程">后续课程</a></p>
+<p><code>USER CODE BEGIN</code> 和 <code>END</code> 是 CubeMX 用来识别保留区域的注释。上面的后台调用位于 <code>USER CODE 3</code> 区域，三个手写启动调用位于前面的 <code>USER CODE 2</code>。开启 <strong>Keep User Code when re-generating</strong> 后，重新生成会保留这些区域中的代码。这些调用的定义维护在 <code>bsp/</code> 和 <code>app/</code>，控制算法另放在 <code>control/</code>。读完电流环后，后续的软件分层专题会把各目录的职责串起来。 <a href="source.html#core-src-main-c-l118">启动保留区域</a> · <a href="#在副本重新生成">副本再生成步骤</a> · <a href="06a-software-architecture.html">3.8 从一拍控制理解软件分层</a></p>
 <p><a href="01-pwm-svpwm.html">继续读 3.2 的 TIM1 和三相 PWM</a></p>
 <h2 id="软件操作手册">软件操作手册</h2>
 <p>下面按固定版本 <code>chapter-3</code> 打开、构建或重新生成。在线版提供教学摘录和配置对照。 <a href="https://github.com/pjzjwzx/foc-stm32-example">示例工程</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/archive/refs/tags/chapter-3.zip">下载 chapter-3 ZIP</a> <a href="#首次构建">首次构建</a> · <a href="#在副本重新生成">在副本重新生成</a></p>
@@ -332,6 +335,8 @@ Build Finished. 0 errors, 0 warnings.
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>
+<li><a href="#通用-foc-部署">通用 FOC 部署</a></li>
+<li><a href="#stm32-部署示例">STM32 部署示例</a></li>
 <li><a href="#软件操作手册">软件操作手册</a><ul>
 <li><a href="#1-准备工具和文件">1 准备工具和文件</a></li>
 <li><a href="#2-在-cubemx-打开已有配置">2 在 CubeMX 打开已有配置</a></li>

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
+<title>3.8 从一拍控制理解软件分层 · FOC 部署 Wiki</title>
+<link rel="stylesheet" href="assets/wiki.css">
+<script src="assets/search-index.js" defer></script>
+<script src="assets/wiki.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#article">跳到正文</a>
+<header class="masthead"><div class="masthead-inner">
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
+</div></header>
+<div class="shell">
+<aside class="sidebar">
+<form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
+<div class="search-results" aria-live="polite" hidden></div>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与电零点</a><a href="05-transforms.html">3.6 坐标变换与开环验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html" aria-current="page">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+</aside>
+<main class="article" id="article">
+<header class="article-header"><span class="eyebrow">第 3 章 · 3.8</span><h1>3.8 从一拍控制理解软件分层</h1></header>
+<p><a href="06-current-pi.html">上一节 3.7 PI 电流闭环</a> · <a href="07-speed.html">下一节 3.9 速度估计与速度闭环</a></p>
+<h2 id="通用-foc-部署">通用 FOC 部署</h2>
+<h3 id="从已经见过的一行找层的边界">从已经见过的一行找层的边界</h3>
+<p><strong>源码摘录</strong>。电流环算完 duty 后，应用用这一行决定能否提交。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L548">应用提交</a></p>
+<pre><code class="language-c">if (running() &amp;&amp; (!ok || !Board_ApplyDutyIsr(foc.duty)))
+    MotorApp_FaultIsr(APP_FAULT_SAMPLE);
+</code></pre>
+<p>这一行连了三种职责。<code>running()</code> 属于应用，决定当前状态是否允许出力。<code>foc.duty</code> 是算法算出的三相比例。<code>Board_ApplyDutyIsr</code> 属于板级支持层，负责在合适的时刻将这组三相比例交给硬件。板级函数返回失败时，应用决定报哪类故障并调用关桥。这样写后，换控制算法时可以继续用同一个提交接口，换 PWM 硬件时可以保留应用的成功与失败分支。</p>
+<p>在 Simulink 中，控制块直接从连线取得一组输入，再写出一组结果。实机上，反馈、指令与输出可能分属不同时间和执行环境。用两条通路梳理各层交接时需要说明的量。</p>
+<p><strong>执行示意</strong>。</p>
+<pre><code class="language-text">外部指令 → 板级收帧 → 协议解码 → 应用按状态接受参考
+                                        ↓
+定时采样 → 板级发布完整帧 → 应用在本拍取参考 → 算法 → 板级提交 PWM
+
+超限检测 → 应用记录故障并调用板级关断
+        → 后台在稍后将状态编码并发回电脑
+</code></pre>
+<ul>
+<li><strong>算法的接口</strong>接收明确的物理量和周期，例如 A、V、rad、s，保存积分等跨拍状态。输出电压或占空比，并报告能否使用。</li>
+<li><strong>应用的接口</strong>负责哪个模式可以运行、哪个目标何时生效，以及检测到异常后采取什么动作。外部给定可能每 20 ms 才更新一次，内环依然每 50 μs 从完整目标和新反馈计算。</li>
+<li><strong>协议的接口</strong>负责字节、字段和物理量互换。帧合法之后，还要交给应用判断是否允许执行。</li>
+<li><strong>板级的接口</strong>把一组采样、时间戳和故障交给上层，接收 PWM 提交和即时关断的要求。采样完整性、提交截止点及故障响应时间要写进接口的使用条件。</li>
+</ul>
+<p>共享数据也有接口。若后台逐字段写入新命令时被电流中断抢占，中断可能拿到新 Id 和旧 Iq。应把整份参考作为一次发布。后台读取反馈时也要在同一个时刻取得相互关联的量，例如 Iq、运行状态和故障位。可用短临界区复制少量字段，之后再完成发送。将跨环境的等待和耗时操作放在控制截止点之外。</p>
+<h2 id="stm32-部署示例">STM32 部署示例</h2>
+<h3 id="沿-0x121-跟到电流环">沿 0x121 跟到电流环</h3>
+<p>已有配套工程时，可离线运行 <code>python tools/can_demo.py current --id 0 --iq 0.1 --duration 1</code>，得到电流目标帧 <code>0x121 7F F8 06 00 00 00 00 00</code>。脚本还会显示进入 Current 及退出的状态请求。下面沿电流目标帧走一次，假设接收时处于 Current、无故障且命令新鲜。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L276">命令脚本</a></p>
+<ol>
+<li><strong>收帧。</strong> FDCAN 的 FIFO0 回调检查标准数据帧和 8 字节长度，把 ID、数据和接收时间放入 BSP 接收队列。队列满时记录丢帧。后台从 <code>Board_CanReceive</code> 取得完整帧和时间。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L243">接收队列</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L268">FDCAN 回调</a></li>
+<li><strong>解码。</strong> <code>Protocol_Decode</code> 检查帧格式，从前三字节拆出两个 12 位整数 <code>0x7FF</code>、<code>0x806</code>。再按两个字段的协议量程还原为约 −0.00122 A 与 +0.09524 A。解码成功返回 true，后台才调用 <code>MotorApp_AcceptCommand</code>。完整帧格式见 3.10。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.c#L29">解码定义</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L611">后台调用</a> · <a href="08-can-mit.html">3.10 CAN MIT</a></li>
+<li><strong>接受。</strong> 应用先以接收时间检查队列里的帧是否过期。对这帧再要求 <code>state == APP_CURRENT</code> 且无故障。在短临界区内，<code>reference = *cmd</code> 复制整份命令，接着限幅并更新 <code>last_command_us</code>。临界区保存并恢复原来的中断屏蔽设置。仅给变量加 <code>volatile</code> 只能约束访问，结构体的多个字段仍需要一起发布。若状态还在 Disabled，解码成功的这帧也会被应用拒绝，参考和命令时间都保持原值。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L306">命令入口</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L342">命令发布</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L37">临界区实现</a></li>
+<li><strong>进入控制拍。</strong> ADC 三相帧到齐后，Current 分支把参考复制到 <code>foc.id_ref_A</code>、<code>foc.iq_ref_A</code>。电流环再应用运行限流，结合新的反馈算出 duty。BSP 负责将 duty 换成 CCR 并提交。脚本每 20 ms 发一帧，正常情况下约每 400 个电流节拍收到一次新目标。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L541">电流环调用与 PWM 提交</a></li>
+</ol>
+<p>反馈也沿相反方向跨层。后台在短临界区内，用同一次读取的角度、速度、Iq、运行状态和故障位生成反馈帧，再恢复中断并尝试发送。这样本帧的电流和状态来自同一份快照。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L627">后台反馈快照</a></p>
+<h3 id="从过流回看即时关断和后台通知">从过流回看即时关断和后台通知</h3>
+<p><strong>手算输入</strong>。假设 GB7215 正在运行，某一拍 A 相计数为 43144，零偏为 32768。差 10376 counts，乘本板的 A/count 得约 19.0 A，超过该配置的相电流保护门槛 18 A。这组输入用于读代码。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L479">计数换算</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/motor_config.h#L25">保护阈值</a></p>
+<ol>
+<li><code>MotorApp_CurrentIsr</code> 调用 <code>MotorApp_FaultIsr(APP_FAULT_CURRENT)</code>。故障函数记录需要通知电脑，随即调用 <code>Board_StopIsr</code>。板级清 TIM1 总输出允许位 MOE，把 PD4 驱动使能拉低，并清软件使能标志。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L485">过流调用</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L69">板级关断</a></li>
+<li>关桥返回后，<code>faults |= fault</code> 保留旧故障并加入新的位，状态置为 <code>APP_FAULT</code>（8）。应用清除旧命令和 PI 积分。控制返回原中断继续更新诊断，本拍到达提交判断时已退出运行态。以后再收到 <code>0x121</code>，应用的状态检查也会拒绝。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L53">故障状态和复位</a></li>
+<li>之后后台在回复队列有空间时处理 <code>status_pending</code>。它在短临界区读状态、故障位和编码器健康，编码成 <code>0x180</code> 并排队。只有过流时，状态回复的前三字节为 <code>08 00 02</code>，依次为状态与故障的高、低字节。硬件发送队列忙时保留待发回复，关桥已经在中断内完成。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L45">状态回复</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L575">后台处理</a></li>
+</ol>
+<h3 id="换硬件时从哪个目录开始">换硬件时从哪个目录开始</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>目录</th>
+<th>职责和示例</th>
+<th>需要改动的情况</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>control/</code></td>
+<td>Clarke、Park、PI、SVPWM 等算法。接收物理量，输出电压和 duty</td>
+<td>改控制算法、数值表示或接口约定时处理。核对周期、电机参数和轴方向后可复用</td>
+</tr>
+<tr>
+<td><code>config/</code></td>
+<td>阶段、循环频率、电机参数、采样增益和符号</td>
+<td>换电机、改采样电路或控制频率时重新核对</td>
+</tr>
+<tr>
+<td><code>app/</code></td>
+<td>工作状态、命令发布、控制调度、故障和标定</td>
+<td>沿用状态机时核对启桥条件、看门狗、故障语义和各节拍</td>
+</tr>
+<tr>
+<td><code>communication/</code></td>
+<td>CAN 帧与物理量互换</td>
+<td>沿用线协议时可复用。改 ID、量程、字段时同步改主机</td>
+</tr>
+<tr>
+<td><code>bsp/</code></td>
+<td>采样与时间戳、PWM 提交、驱动故障和关断、传感器与 CAN 收发</td>
+<td>接到目标板资源，重新测量采样、提交和关断时序</td>
+</tr>
+<tr>
+<td><code>Core/</code>、<code>Drivers/</code></td>
+<td>CubeMX 初始化、IRQ 入口和 HAL</td>
+<td>按目标芯片配置时钟、引脚、PWM 与死区、ADC 触发和中断。若使用 Flash 保存，还要核对预留区与擦写粒度</td>
+</tr>
+</tbody>
+</table></div>
+<p>阅读跨层调用时，先在 <code>foc.h</code> 或 <code>board.h</code> 看声明怎样约定参数和返回值，再到对应的 <code>.c</code> 看函数定义。编译器依据声明检查调用，链接器把调用接到具体实现。只有声明、没有编进对应的定义时，链接器会报告 <code>undefined reference</code>。沿着本节的两条路径，可以定位要改的是命令字段、允许条件、算法参数，还是硬件接口。后续速度环只增加一种生成 Iq 参考的方法，仍然用本章的电流环和提交路径。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.h">控制接口</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.h">板级接口</a> · <a href="reference.html#换用其他-stm32">换板参考</a></p>
+<div class="pager"><a href="06-current-pi.html"><small>上一页</small>3.7 PI 电流闭环</a><a href="07-speed.html"><small>下一页</small>3.9 速度估计与速度闭环</a></div>
+</main>
+<aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
+<ul>
+<li><a href="#通用-foc-部署">通用 FOC 部署</a><ul>
+<li><a href="#从已经见过的一行找层的边界">从已经见过的一行找层的边界</a></li>
+</ul>
+</li>
+<li><a href="#stm32-部署示例">STM32 部署示例</a><ul>
+<li><a href="#沿-0x121-跟到电流环">沿 0x121 跟到电流环</a></li>
+<li><a href="#从过流回看即时关断和后台通知">从过流回看即时关断和后台通知</a></li>
+<li><a href="#换硬件时从哪个目录开始">换硬件时从哪个目录开始</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</aside>
+</div>
+<footer class="footer">FOC 部署 Wiki · 仿真、固件和实物</footer>
+</body>
+</html>

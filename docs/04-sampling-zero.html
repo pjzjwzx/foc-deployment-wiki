@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
-<title>3.5 采样、中断与电零点 · FOC 部署 Wiki</title>
+<title>3.5 采样、中断与一拍控制 · FOC 部署 Wiki</title>
 <link rel="stylesheet" href="assets/wiki.css">
 <script src="assets/search-index.js" defer></script>
 <script src="assets/wiki.js" defer></script>
@@ -18,15 +18,17 @@
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html" aria-current="page">3.5 采样、中断与电零点</a><a href="05-transforms.html">3.6 坐标变换与开环验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html" aria-current="page">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
-<header class="article-header"><span class="eyebrow">第 3 章 · 3.5</span><h1>3.5 采样、中断与电零点</h1></header>
-<p><a href="03-sensors.html">上一节 3.4 电流与角度传感器</a> · <a href="05-transforms.html">下一节 3.6 坐标变换与开环验算</a></p>
-<p>把模型的离散控制放到 MCU 上，先回答一拍怎样开始、反馈何时可用、算出的 duty 何时生效。这节先走完一拍，再回查 CubeMX。最后用一次低电压对齐建立电角基准，下一节仍在电压开环下核对 Clarke 和 Park。</p>
-<h2 id="通用-foc-部署">通用 FOC 部署</h2>
-<h3 id="给离散控制的一拍标出三个时刻">给离散控制的一拍标出三个时刻</h3>
-<p>在 Simulink 里打开一段模型波形，把时间放大到几拍。假设控制步长是 50 μs，用竖线标出 <code>kTs</code>、<code>(k+1)Ts</code>。模型在一拍里取反馈并给出新 duty。实际 MCU 要为这一步留出采样、转换、响应和计算的时间。先标出三个时刻，再核对模型是否也考虑了对应延迟。</p>
+<header class="article-header"><span class="eyebrow">第 3 章 · 3.5</span><h1>3.5 采样、中断与一拍控制</h1></header>
+<p><a href="03-sensors.html">上一节 3.4 电流与角度传感器</a> · <a href="05-transforms.html">下一节 3.6 电零点、坐标变换与开环波形验算</a></p>
+<p>把模型的离散控制放到 MCU 上，先回答一拍怎样开始、反馈何时可用、算出的 duty 何时生效。这节先走完一拍，再回查 CubeMX。</p>
+<p><span id="通用-foc-部署"></span></p>
+<h2 id="通用部署">通用部署</h2>
+<p><span id="给离散控制的一拍标出三个时刻"></span></p>
+<h3 id="把模型的一拍展开成采样和更新的时间轴">把模型的一拍展开成采样和更新的时间轴</h3>
+<p>在 Simulink 里打开一段模型波形，把时间放大到几拍。用竖线标出 <code>kTs</code>、<code>(k+1)Ts</code>，两线间隔是控制步长 <code>Ts</code>。例如 <code>Ts=50 μs</code> 对应每秒 20 000 拍。模型在一拍里取反馈并给出新 duty。实际 MCU 要为采样、转换、中断响应和计算留出时间。把下面四个事件标在同一轴上，再核对模型如何表示从取样到新 duty 生效的延迟。</p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -38,18 +40,23 @@
 <tbody>
 <tr>
 <td>触发采样</td>
-<td>本拍输入的时间标签</td>
-<td>由定时事件选在载波的指定位置，确认电流测量窗口与开关边沿的关系</td>
+<td>本拍输入的时间参考</td>
+<td>由定时事件选在载波的指定位置，确认实际模拟取样窗口与开关边沿的关系</td>
 </tr>
 <tr>
 <td>三相结果齐备</td>
 <td>可供算法使用的 <code>iabc[k]</code></td>
-<td>等本组结果完成再调用控制。传感器更新较慢时，按时间戳选取反馈角</td>
+<td>等本组结果齐备再调用控制。角传感器更新较慢时，按时间戳选取反馈角</td>
+</tr>
+<tr>
+<td>写入新比较值</td>
+<td>本拍算得 <code>duty[k]</code></td>
+<td>计算与提交必须赶在目标锁存事件之前，确认三相能在同一更新事件采用新值</td>
 </tr>
 <tr>
 <td>新比较值锁存</td>
-<td>duty 开始作用到功率级的时刻</td>
-<td>计算结束先提交，定时器在更新事件采用预装载值。模型需要研究延迟时，按这个生效相位设置输出保持或延时</td>
+<td><code>duty[k]</code> 开始影响 PWM 比较</td>
+<td>比较值在指定事件生效。需要研究控制延迟时，在模型中按生效相位设置输出保持或延时</td>
 </tr>
 </tbody>
 </table></div>
@@ -60,6 +67,7 @@
   │                         └─ 读同一组电流与可用角度
   └─ 硬件为这一拍建立时间参考
 </code></pre>
+<h3 id="按调用顺序读一拍控制">按调用顺序读一拍控制</h3>
 <p>控制代码把一次完整采样当成一次函数调用。<code>MotorApp_CurrentIsr(const uint16_t raw[3], uint32_t now)</code> 的 <code>raw</code> 是板级交来的三相计数，<code>now</code> 在这里是这组采样的触发参考时间。<code>const</code> 表示应用只读这份计数。函数先推进节拍、更新编码器并换算三相电流，再用本拍时间求反馈角。下面是它接上测量算法的几行。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L462-L493">控制入口与测量链</a></p>
 <p><strong>源码摘录</strong>。</p>
 <pre><code class="language-c">float angle = rotor.valid ? Rotor_ElectricalAngle(&amp;rotor, now) : 0.0f;
@@ -70,11 +78,9 @@ if (!Foc_Measure(&amp;foc, phase, angle))
 </code></pre>
 <p>第一行的 <code>条件 ? 真值 : 假值</code> 用最近的有效角计算这一拍的电角。当前角无效或计算返回无效数值时，测量路径用 0 继续记录诊断。运行能否继续还受 <code>encoder_tick</code> 的健康与超时检查约束。最后两行将三相电流和角度交给 <code>Foc_Measure</code>，函数返回失败就记数学故障。之后由运行状态决定是否计算新的 duty。Open 用给定电角做逆 Park 和调制，算完才走板级提交。该提交失败也会进入故障处理。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L382-L413">编码器保护</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L519-L549">Open 到 duty 提交</a></p>
 <p>换 MCU 时，保留“拿到一组有效电流和采样时刻再运行一次控制”这个约定。硬件可以用转换完成中断、DMA 完成或其他方式交付结果。若目标硬件的通道依次采样，还要在接入前检查相间取样偏移。更换载波或触发配置后，重新确认每载波触发几次、控制实际周期和预装载截止点，再更新模型步长及控制代码里的 <code>dt</code>。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/lab_config.h#L18-L29">示例的固定控制周期</a></p>
-<h3 id="给真实电角定义零点">给真实电角定义零点</h3>
-<p>模型知道转子磁场指向。实物编码器的机械零刻度由安装位置决定。把定子电压矢量固定在程序约定的电角 0，给 d 轴小电压且 q 轴为 0，等待能自由转动的转子对齐并静止。此时的机械角记为 <code>θ0</code>。完成对齐后，若不考虑样本延迟，反馈电角就是 <code>wrap((θm − θ0) × p)</code>，其中 <code>p</code> 是极对数。</p>
-<p>电流零偏与电零点各减在自己的量上。电流减 ADC 基线后乘 A/count，电角先减对齐得到的机械角再乘极对数。示例把电零点以机械计数保存在 <code>electrical_zero_count</code>，进公式时才换成机械弧度。角样本比这拍电流更早时，还会在机械角上加 <code>速度 × 样本年龄</code>，然后减零位、乘极对数、折回一圈。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L71-L80">电角计算</a></p>
-<p><strong>手算输入</strong>。机械零位为 1 rad，最近机械角为 1.1 rad，样本比电流触发早 200 μs，机械速度 10 rad/s，电机有 21 极对。<strong>答案</strong>　先外推 <code>10 × 0.0002 = 0.002 rad</code>，再算 <code>(1.1 + 0.002 − 1) × 21 = 2.142 rad</code>，已在一圈以内。对应 Simulink 时可以先令速度为 0 对齐基准，再恢复速度项。</p>
-<h2 id="stm32-部署示例">STM32 部署示例</h2>
+<p>把最迟的帧到齐时刻和最早的提交截止时刻相减，所得时间供控制代码和可能插入的更高优先级中断使用。先定义整帧如何识别、何时过期、失败时怎样停止更新或关断，再用目标平台的计时手段验证。后面的 H743 时间轴把这些条件写成具体的计数器窗口。</p>
+<p><span id="stm32-部署示例"></span></p>
+<h2 id="stm32-实现">STM32 实现</h2>
 <h3 id="先跟代码走完-h743-的一拍">先跟代码走完 H743 的一拍</h3>
 <p>在 <a href="01-pwm-svpwm.html">3.2 的 TIM1 计数图</a> 上沿 CNT 看一圈。从底端上数到 1 时，CH4 的 OC4REF 产生下降沿，经内部 TRGO 触发三个 ADC 的注入转换。到达顶端约需 25 μs，再下数约 25 μs 回到底端。ADC 选下降沿，所以一整个 50 μs 载波只取一组触发。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/tim.c#L45-L99">TIM1 触发路由</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/adc.c#L82-L101">ADC 注入边沿</a></p>
 <p><strong>示意时间轴</strong>。以载波底端为 0，表中的数字来自配置或手算，ADC 与控制运行的具体耗时需实测。</p>
@@ -177,51 +183,32 @@ MotorApp_CurrentIsr(raw, trigger_time);
 </table></div>
 <p>ADC 的 2.5 个时钟周期描述单次模拟取样时间，之后还要转换并累加。本例 ADC1 的 EOC 选择为序列完成，HAL 的注入中断使用 JEOS。ADC2/3 的 EOC 选择为单次完成，注入中断使用 JEOC。三个注入组各只有一个 Rank，两种完成通知都能标记本相本拍结果。配置生成后还要启动。搜索 <code>Board_Start</code>，它先用 <code>HAL_ADCEx_InjectedStart_IT</code> 为三路注入组准备中断和触发，再启动 TIM1 三相与 CH4。任一 HAL 调用失败就返回 <code>false</code>，由主函数进错误处理。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L175-L192">板级启动</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/main.c#L73-L135">主函数</a></p>
 <p>母线电压也在 ADC1，但接 PC5/IN8，使用规则组 Rank 1、软件启动、64.5 ADC 周期采样。后台每隔至少 1000 μs 启动一次，到规则 EOC 才读结果并换算伏数。代码用 <code>HAL_ADCEx_RegularStop</code> 结束规则组，让注入组继续接受 TIM1 触发。母线数据超过新鲜窗口后 <code>Board_BusVoltage()</code> 返回 0。三相注入结果和母线规则结果有各自的寄存器与读取路径。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/adc.c#L50-L114">规则组配置</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L194-L225">后台母线读取</a></p>
-<h3 id="用-lab4-标定电零点">用 LAB4 标定电零点</h3>
-<p>在配套固件目录先运行离线命令。它打印开始帧 <code>0x124  05 01 01 90 00 00 00 00</code>，其中 <code>05</code> 选单点对齐，<code>01 90</code> 表示 400 mV。</p>
-<pre><code class="language-powershell">python tools/can_demo.py cal-zero --voltage-mv 400
-</code></pre>
-<p>应用收到请求后检查阶段至少为 LAB4、当前 Disabled、无故障、编码器已有足够有效帧、母线电压与标定电压满足条件。驱动准备成功后调用 <code>Calibration_Start</code>，本次 <code>lut</code> 参数为假。应用随后发布 <code>APP_CALIBRATION</code> 状态。电流中断每拍推进 <code>Calibration_FastStep</code>。它用 4000 拍在 0.2 s 内将 d 轴电压爬到目标，保持电角 0，等待 10 000 拍即 0.5 s，再开始接收 256 个有效新角。按 4 kHz 名义频率计，取样约需 64 ms。此时的 <code>Foc_VoltageStep</code> 用 d 轴对齐电压、q 轴 0 V。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L241-L284">请求检查</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/calibration.c#L10-L83">标定状态机</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L508-L517">应用输出电压</a></p>
-<p><strong>源码摘录</strong>。每次收到有效新角，<code>Calibration_OnSample</code> 在收样阶段累计方向归一化后的计数。以下省略第一帧设置 <code>first_count</code> 的分支，后面的 LUT 分支留到专题。</p>
-<pre><code class="language-c">c-&gt;sum += (int64_t)c-&gt;first_count + delta(raw, c-&gt;first_count);
-if (++c-&gt;samples &lt; CAL_SAMPLES)
-    return;
-uint16_t mean = (uint16_t)(c-&gt;sum / (int64_t)CAL_SAMPLES);
-if (!c-&gt;lut_mode)
-{
-    c-&gt;result.zero_count = mean;
-    c-&gt;result.zero_valid = 1;
-    c-&gt;result.lut_valid = 0;
-    c-&gt;state = CAL_PROCESS;
-    return;
-}
-</code></pre>
-<p><code>delta</code> 求相对于第一帧的环形短差。<code>++c-&gt;samples</code> 先加一再比较，前 255 帧累加后就返回。第 256 帧得到整数平均，保存为机械零位，标记电零点有效和 LUT 无效。后台见到 <code>CAL_PROCESS</code> 就先关桥，再处理、保存并读回验证。成功后才把结果交给 <code>rotor</code>，并等一个新角重新建立反馈。失败时记录标定故障。下一节用已标定电角检查 Park，完整扫圈和查表放到 <a href="09-lut.html">LUT 专题</a>。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/calibration.c#L19-L105">圆周差与单点结果</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L587-L609">关桥和保存</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/flash_store.c">Flash 读回</a></p>
-<p><strong>离线过关</strong>。把 65534、0、2 当成仅用于演算的三个对齐样本。相对首点展开后为 65534、65536、65538，平均为 65536，折回全圈计数后是 0。再回看本页时间轴，指出为什么计算频率可为 20 kHz，且在一拍的上数半程内就要完成提交。</p>
-<h3 id="实物选做先验证节拍再对齐">实物选做｜先验证节拍，再对齐</h3>
+<p><span id="实物选做先验证节拍再对齐"></span></p>
+<h3 id="实物选做验证采样与提交节拍">实物选做｜验证采样与提交节拍</h3>
 <ol>
-<li>用 <code>LAB_STAGE=4</code> 构建并下载。保持 Disabled，先核对上一节的电流零偏和编码器。以独立计时观察 <code>MotorApp_Diagnostics.current_ticks</code>，正常应约每秒增加 20 000。若有示波器，可用另加的 GPIO 探针观察 IRQ 和提交相对载波的时刻。诊断量 <code>max_isr_cycles</code> 记录应用控制函数内部耗时，整条链还包含采样和中断入口开销。断点会暂停程序，计时记录应在连续运行时取得。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.h#L29-L42">诊断字段</a></li>
-<li>确认电机配置、机械自由转动条件、空载、母线和停机方法。按 <a href="02-open-loop.html">3.3 的 CAN 步骤</a> 选适配器，例中把 <code>COM5</code> 换成实际端口。标定中有异常电流、故障或机械卡滞时立即停机并检查。</li>
+<li>
+<p>用 <code>LAB_STAGE=4</code> 构建并下载。保持 Disabled，先核对上一节的电流零偏和编码器。以独立计时观察 <code>MotorApp_Diagnostics.current_ticks</code>，正常应约每秒增加 20 000。若有示波器，可用另加的 GPIO 探针观察 IRQ 和提交相对载波的时刻。诊断量 <code>max_isr_cycles</code> 记录应用控制函数内部耗时，整条链还包含采样和中断入口开销。断点会暂停程序，计时记录应在连续运行时取得。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.h#L29-L42">诊断字段</a></p>
+</li>
+<li>
+<p>在符合 3.3 的供电、限流、空载和停机条件时，短时进入 Open，记录一个 PWM 载波周期内的触发参考、应用入口与 CCR 提交位置。示波器上对照 PWM 载波与诊断探针，确认每载波只产生一次应用调用、三相齐备后才计算、提交留在上数窗口内。需要检查预装载锁存时，可用已知占空比变化，对照提交探针和引脚波形变化。触发与提交的实板记录待补。 <a href="02-open-loop.html">3.3 启停条件</a> · <a href="reference.html#验证记录">验证记录</a></p>
+</li>
 </ol>
-<p><code>powershell
-   python tools/can_demo.py --send --interface slcan --channel COM5 --bitrate 1000000 cal-zero --voltage-mv 400</code></p>
-<ol start="3">
-<li>等脚本轮询完成并停机。查 <code>cal-status</code>，确认零位有效、LUT 无效。可再运行 <code>cal-read --index 0xFF</code> 读取零位，重启后核对是否恢复。0.4 V 是本页的请求示例。实际能否对齐与供电、摩擦、负载及电机配置有关，本页没有实测波形。</li>
-</ol>
-<div class="pager"><a href="03-sensors.html"><small>上一页</small>3.4 电流与角度传感器</a><a href="05-transforms.html"><small>下一页</small>3.6 坐标变换与开环验算</a></div>
+<p><span id="给真实电角定义零点"></span>
+<span id="用-lab4-标定电零点"></span></p>
+<p>电角基准、LAB4 对齐与保存检查见 <a href="05-transforms.html#用-lab4-标定电零点">3.6 电零点标定</a>。</p>
+<div class="pager"><a href="03-sensors.html"><small>上一页</small>3.4 电流与角度传感器</a><a href="05-transforms.html"><small>下一页</small>3.6 电零点与开环波形验算</a></div>
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>
-<li><a href="#通用-foc-部署">通用 FOC 部署</a><ul>
-<li><a href="#给离散控制的一拍标出三个时刻">给离散控制的一拍标出三个时刻</a></li>
-<li><a href="#给真实电角定义零点">给真实电角定义零点</a></li>
+<li><a href="#通用部署">通用部署</a><ul>
+<li><a href="#把模型的一拍展开成采样和更新的时间轴">把模型的一拍展开成采样和更新的时间轴</a></li>
+<li><a href="#按调用顺序读一拍控制">按调用顺序读一拍控制</a></li>
 </ul>
 </li>
-<li><a href="#stm32-部署示例">STM32 部署示例</a><ul>
+<li><a href="#stm32-实现">STM32 实现</a><ul>
 <li><a href="#先跟代码走完-h743-的一拍">先跟代码走完 H743 的一拍</a></li>
 <li><a href="#再回查-cubemx-和生成代码">再回查 CubeMX 和生成代码</a></li>
-<li><a href="#用-lab4-标定电零点">用 LAB4 标定电零点</a></li>
-<li><a href="#实物选做先验证节拍再对齐">实物选做｜先验证节拍，再对齐</a></li>
+<li><a href="#实物选做验证采样与提交节拍">实物选做｜验证采样与提交节拍</a></li>
 </ul>
 </li>
 </ul>

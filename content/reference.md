@@ -11,7 +11,7 @@
 | ADC 注入组 | TIM1 CH4 设为内部 PWM1，比较值 1，以 OC4REF 作为 TRGO。三路 ADC 在其下降沿触发，每个载波采集一组三相电流。ADC1 IN5/PB1、ADC2 IN7/PA7、ADC3 IN0/PC2_C，各用一个 Rank。14 位，采样 2.5 个 ADC 时钟周期，注入组过采样 16 次、右移 2 位。 |
 | ADC 规则组 | ADC1 IN8/PC5 测母线电压，规则组由软件启动，采样 64.5 个 ADC 时钟周期。LAB1 使用名义母线算观察波形，LAB2 的运行分支使用实测母线。 |
 | 编码器 SPI1 | 主机、单线半双工、8 位传输、MSB 先发，CPOL=0、CPHA=第二边沿。内核时钟 48 MHz，预分频 8，SCK 为 6 MHz。片选由 GPIO 控制，请求频率 4 kHz。 [3.4 电流与角度传感器](03-sensors.md) |
-| 采样 NVIC | ADC1/2 共用 ADC 中断，ADC3 使用独立中断，抢占优先级均为 1，子优先级均为 0。 [3.5 采样、中断与电零点](04-sampling-zero.md) |
+| 采样 NVIC | ADC1/2 共用 ADC 中断，ADC3 使用独立中断，抢占优先级均为 1，子优先级均为 0。 [3.5 采样、中断与一拍控制](04-sampling-zero.md) |
 | FDCAN1 | Classic CAN、Normal、1 Mbps。48 MHz 时 Prescaler=3、Seg1=13、Seg2=2、SJW=1。使用标准 11 位标识符和 8 字节数据。PD0/PD1 是 MCU 端 RX/TX，适配器接板上收发器后的 CANH/CANL。 |
 | UART4 | TX PB9、RX PB8，1 Mbps、8N1、无流控。发送使用 DMA。JustFloat 每帧六个浮点数，应用按 1 kHz 准备快照。LAB2 的 ch0–ch2 是相电流，ch3 是机械角，ch4 是反馈电角，ch5 是给定电角。 |
 | SWD 与驱动 | SWDIO 为 PA13，SWCLK 为 PA14。示例板的驱动使能为 PD4，故障输入为 PD5。先确认 MCU 引脚有 PWM，再单独确认驱动使能。LAB1 的观察路径保持驱动关闭。 |
@@ -64,9 +64,9 @@ python tools/can_demo.py open --electrical-speed 10 --vq 0.2 --duration 2
 | [3.2 从 Simulink 占空比到 STM32 PWM](01-pwm-svpwm.md) | 将扇区法与 min/max 调制对齐，再把 duty 交给定时器。 |
 | [3.3 第一次实际部署电压开环](02-open-loop.md) | 沿给定电角、母线与 PWM 提交走完一次启停。 |
 | [3.4 电流与角度传感器](03-sensors.md) | 从 ADC 计数和编码器帧得到安培与机械角。 |
-| [3.5 采样、中断与电零点](04-sampling-zero.md) | 从离散步长追到触发、控制计算和 CCR 生效，再看电角基准。 |
-| [3.6 坐标变换与开环验算](05-transforms.md) | 保持电压开环，沿 Clarke、Park 核对波形。 |
-| [3.7 PI 电流闭环](06-current-pi.md) | 跟一拍离散 PI，从电流误差走到限幅与占空比。 |
+| [3.5 采样、中断与一拍控制](04-sampling-zero.md) | 沿同一时间轴核对触发、反馈帧、控制计算和 PWM 生效。 |
+| [3.6 电零点、坐标变换与开环波形验算](05-transforms.md) | 标定电角零位，用开环反馈回放 Clarke 和 Park。 |
+| [3.7 离散 PI 电流闭环与初步调试](06-current-pi.md) | 对照误差、积分、限幅和小阶跃响应。 |
 | [3.8 从一拍控制理解软件分层](06a-software-architecture.md) | 沿命令与过流停机认识各层接口。 |
 | [3.9 速度估计与速度闭环](07-speed.md) | 从两个角度样本估速度，再由速度 PI 产生 Iq 参考。 |
 | [3.10 CAN MIT](08-can-mit.md) | 沿一帧报文追到输出轴力矩、电机电流和反馈。 |

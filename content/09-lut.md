@@ -2,9 +2,11 @@
 
 [上一节 3.10 CAN MIT](08-can-mit.md) · [课程首页](index.md)
 
-Simulink 的理想角度传感器可以直接反馈转子角。实物上先用电零位确定角度基准，再按需要用查找表修正同一圈内随位置变化的读数误差。本节从两组开环扫描点得到一张 32 点表，再把表接回测速和电角计算。
+Simulink 的理想角度传感器可以直接反馈转子角。实物上先用 [3.6 的电零点标定](05-transforms.md) 确定角度基准，再按需要用查找表修正同一圈内随位置变化的读数误差。本节从两组开环扫描点得到一张 32 点表，再把表接回测速和电角计算。
 
-## 通用 FOC 部署
+<span id="通用-foc-部署"></span>
+
+## 通用部署
 
 ### 对齐、正扫、反扫
 
@@ -81,7 +83,11 @@ return (uint16_t)((int32_t)raw + (int32_t)lroundf(correction));
 
 在模型回放同一段编码器计数时，把 LUT 放在方向归一化之后、计数到机械角之前。并排观察原始计数、加回的修正、修正后的计数和电角，重点检查第 31 格到第 0 格的连续性。修正后的计数也用于多圈位置和速度估计。 [位置和速度更新](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L32)
 
-## STM32 部署示例
+**离线核对。** 用一张测试表令第 31 格修正为 `+6`、第 0 格为 `+2`。输入 `65535 → 0` 时，插值并取整的修正都是 `+2`，修正后单圈计数为 `1 → 2`。无表路径为 `65535 → 0`，两条路径按环形差计算都只前进 1 count。把测试表设为无效再重放，结果应回到无表路径。实机重新执行仅零位标定成功后，会发布新零位并清除 `lut_valid`，后续角度仍按新零位计算。 [查表有效位](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L19) · [仅零位结果](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/calibration.c#L98)
+
+<span id="stm32-部署示例"></span>
+
+## STM32 实现
 
 ### 核对扫描入口和采样配置
 
@@ -128,4 +134,4 @@ python tools/can_demo.py --send --interface slcan --channel COM5 cal-read --inde
 python tools/can_demo.py --send --interface slcan --channel COM5 cal-read --index 0
 ```
 
-扫描通常持续数十秒。等待工具轮询完成，确认停机、零位与 LUT 有效，记录读回值。保持停机复位后再查有效标志和表值。若要比较有表和仅零位的两份实物记录，先保留各次读回值，因为成功执行 ZERO 会保存新的零位并清除旧 LUT。出现异常运动、故障或失联，先确认功率已关断，再按失败阶段核对条件。实物结果待记录。 [验证记录](reference.md#验证记录)
+扫描通常持续数十秒。等待工具轮询完成，确认停机、零位与 LUT 有效，记录零位和至少一个表项。保持停机复位，再查有效标志、同一个表项和零位，核对它们与复位前一致。若要比较有表和仅零位的两份实物记录，先保留各次读回值，因为成功执行 ZERO 会保存新的零位并清除旧 LUT。出现异常运动、故障或失联，先确认功率已关断，再按失败阶段核对条件。实物结果待记录。 [验证记录](reference.md#验证记录)

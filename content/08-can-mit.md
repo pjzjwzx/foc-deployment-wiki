@@ -4,7 +4,9 @@
 
 在 Simulink 中，MIT 模式有五个输入。部署时，这五个量由主机经 CAN 更新，控制器还要判断命令是否有效、模式是否允许和通信是否超时。本节从一帧可离线生成的报文出发，读到输出轴力矩、电机侧 Iq 和测量回包。
 
-## 通用 FOC 部署
+<span id="通用-foc-部署"></span>
+
+## 通用部署
 
 ### 从线上的八个字节恢复模型输入
 
@@ -77,7 +79,11 @@ foc->id_ref_A = 0.0f;
 
 `0x003` 与 `0x182` 都用八字节测量格式。字节 0 是 `0x13`，字节 1～2 放位置，字节 3～5 拼两个 12 位的速度与电流，字节 6、7 放状态和故障低八位。`0x003` 在接受目标时抓取已有测量，可能早于目标在下一个 5 ms 节拍生效。离线对照时沿时间轴分别记下解码目标、用于计算的测量、力矩请求、限幅后 Iq 和回包。 [测量编码](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.c#L126) · [回复生成与发送](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L363)
 
-## STM32 部署示例
+**离线核对。** 用上面一帧和同一组输出轴测量重放 MIT 计算。将算例中的有效限流设为 0.4 A，预期未限幅请求仍约为 0.510 A，交给电流环的参考为 0.4 A，`torque_output_Nm` 约为 0.477 N·m。再用相同目标分别检查 MIT 和 Disabled 的命令分支，标出哪一支会发布目标并续期。
+
+<span id="stm32-部署示例"></span>
+
+## STM32 实现
 
 ### 由 CubeMX 配置 H743 的 Classic CAN
 
@@ -109,4 +115,4 @@ python tools/can_demo.py --send --interface slcan --channel COM5 cal-status
 python tools/can_demo.py --send --interface slcan --channel COM5 mit --position 0 --velocity 0 --kp 0 --kd 0.05 --torque 0 --duration 2
 ```
 
-记录进入状态、`0x003` 测量和退出状态。主机退出时尝试发 Disabled，收到故障或发现运动异常时先确保功率已关断。若在受控的实物验收中停止发送端来测试失联，先确认驱动关闭。总线仍能通信时，再读取 `0x180` Fault。排除故障原因后用 `clear` 请求回到 Disabled，再检查能否重新使能。实物结果待记录。 [状态切换与故障清除](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L116)
+记录进入状态、`0x003` 测量和退出状态。正常结束时主机会尝试发送 Disabled。若要单独验收失联保护，在受控条件下中断周期指令流，记录最后一份有效命令到驱动关断的间隔，并确认输出已关断。总线仍能通信时，再读取 `0x180` Fault，核对通信故障位。收到故障或发现运动异常时先确保功率已关断。排除故障原因后用 `clear` 请求回到 Disabled，再检查能否重新使能。实物结果待记录。 [状态切换与故障清除](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L116)

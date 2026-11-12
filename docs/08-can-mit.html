@@ -18,13 +18,14 @@
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与电零点</a><a href="05-transforms.html">3.6 坐标变换与开环验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html" aria-current="page">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html" aria-current="page">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
 <header class="article-header"><span class="eyebrow">第 3 章 · 3.10</span><h1>3.10 CAN MIT</h1></header>
 <p><a href="07-speed.html">上一节 3.9 速度估计与速度闭环</a> · <a href="09-lut.html">下一节 3.11 开环 LUT 标定</a></p>
 <p>在 Simulink 中，MIT 模式有五个输入。部署时，这五个量由主机经 CAN 更新，控制器还要判断命令是否有效、模式是否允许和通信是否超时。本节从一帧可离线生成的报文出发，读到输出轴力矩、电机侧 Iq 和测量回包。</p>
-<h2 id="通用-foc-部署">通用 FOC 部署</h2>
+<p><span id="通用-foc-部署"></span></p>
+<h2 id="通用部署">通用部署</h2>
 <h3 id="从线上的八个字节恢复模型输入">从线上的八个字节恢复模型输入</h3>
 <p>在配套工程根目录执行下面的命令。默认只打印发送计划。它先请求 Disabled，再请求 MIT，周期目标帧为 <code>0x013  82 8E 80 60 10 05 18 16</code>，退出时安排发送 Disabled。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L246">主机命令</a></p>
 <pre><code class="language-powershell">python tools/can_demo.py mit --position 1 --velocity 0.5 --kp 2 --kd 0.1 --torque 0.2 --duration 2
@@ -129,7 +130,9 @@ foc-&gt;id_ref_A = 0.0f;
 </tbody>
 </table></div>
 <p><code>0x003</code> 与 <code>0x182</code> 都用八字节测量格式。字节 0 是 <code>0x13</code>，字节 1～2 放位置，字节 3～5 拼两个 12 位的速度与电流，字节 6、7 放状态和故障低八位。<code>0x003</code> 在接受目标时抓取已有测量，可能早于目标在下一个 5 ms 节拍生效。离线对照时沿时间轴分别记下解码目标、用于计算的测量、力矩请求、限幅后 Iq 和回包。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.c#L126">测量编码</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L363">回复生成与发送</a></p>
-<h2 id="stm32-部署示例">STM32 部署示例</h2>
+<p><strong>离线核对。</strong> 用上面一帧和同一组输出轴测量重放 MIT 计算。将算例中的有效限流设为 0.4 A，预期未限幅请求仍约为 0.510 A，交给电流环的参考为 0.4 A，<code>torque_output_Nm</code> 约为 0.477 N·m。再用相同目标分别检查 MIT 和 Disabled 的命令分支，标出哪一支会发布目标并续期。</p>
+<p><span id="stm32-部署示例"></span></p>
+<h2 id="stm32-实现">STM32 实现</h2>
 <h3 id="由-cubemx-配置-h743-的-classic-can">由 CubeMX 配置 H743 的 Classic CAN</h3>
 <p>在配套 <code>.ioc</code> 打开 <strong>Pinout &amp; Configuration → Connectivity → FDCAN1</strong>，用 <strong>Parameter Settings</strong> 核对帧格式、位时序、滤波器数量和消息 RAM，再在 <strong>NVIC Settings</strong> 复核中断。内核时钟从 <strong>Clock Configuration</strong> 核对。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/FOC_Arclab_H743_V3.ioc#L150">CubeMX 配置</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/fdcan.c#L30">生成的 FDCAN 初始化</a></p>
 <div class="table-wrap"><table>
@@ -187,18 +190,18 @@ foc-&gt;id_ref_A = 0.0f;
 python tools/can_demo.py --send --interface slcan --channel COM5 cal-status
 python tools/can_demo.py --send --interface slcan --channel COM5 mit --position 0 --velocity 0 --kp 0 --kd 0.05 --torque 0 --duration 2
 </code></pre>
-<p>记录进入状态、<code>0x003</code> 测量和退出状态。主机退出时尝试发 Disabled，收到故障或发现运动异常时先确保功率已关断。若在受控的实物验收中停止发送端来测试失联，先确认驱动关闭。总线仍能通信时，再读取 <code>0x180</code> Fault。排除故障原因后用 <code>clear</code> 请求回到 Disabled，再检查能否重新使能。实物结果待记录。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L116">状态切换与故障清除</a></p>
+<p>记录进入状态、<code>0x003</code> 测量和退出状态。正常结束时主机会尝试发送 Disabled。若要单独验收失联保护，在受控条件下中断周期指令流，记录最后一份有效命令到驱动关断的间隔，并确认输出已关断。总线仍能通信时，再读取 <code>0x180</code> Fault，核对通信故障位。收到故障或发现运动异常时先确保功率已关断。排除故障原因后用 <code>clear</code> 请求回到 Disabled，再检查能否重新使能。实物结果待记录。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L116">状态切换与故障清除</a></p>
 <div class="pager"><a href="07-speed.html"><small>上一页</small>3.9 速度估计与速度闭环</a><a href="09-lut.html"><small>下一页</small>3.11 开环 LUT 标定</a></div>
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>
-<li><a href="#通用-foc-部署">通用 FOC 部署</a><ul>
+<li><a href="#通用部署">通用部署</a><ul>
 <li><a href="#从线上的八个字节恢复模型输入">从线上的八个字节恢复模型输入</a></li>
 <li><a href="#经过应用检查后才更新电流参考">经过应用检查后，才更新电流参考</a></li>
 <li><a href="#把回包和本次计算区分开">把回包和本次计算区分开</a></li>
 </ul>
 </li>
-<li><a href="#stm32-部署示例">STM32 部署示例</a><ul>
+<li><a href="#stm32-实现">STM32 实现</a><ul>
 <li><a href="#由-cubemx-配置-h743-的-classic-can">由 CubeMX 配置 H743 的 Classic CAN</a></li>
 <li><a href="#核对通信超时与停机">核对通信超时与停机</a></li>
 </ul>

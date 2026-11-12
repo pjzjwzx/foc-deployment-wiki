@@ -18,13 +18,14 @@
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与电零点</a><a href="05-transforms.html">3.6 坐标变换与开环验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html" aria-current="page">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html" aria-current="page">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
 <header class="article-header"><span class="eyebrow">第 3 章 · 3.11</span><h1>3.11 开环 LUT 标定</h1></header>
 <p><a href="08-can-mit.html">上一节 3.10 CAN MIT</a> · <a href="index.html">课程首页</a></p>
-<p>Simulink 的理想角度传感器可以直接反馈转子角。实物上先用电零位确定角度基准，再按需要用查找表修正同一圈内随位置变化的读数误差。本节从两组开环扫描点得到一张 32 点表，再把表接回测速和电角计算。</p>
-<h2 id="通用-foc-部署">通用 FOC 部署</h2>
+<p>Simulink 的理想角度传感器可以直接反馈转子角。实物上先用 <a href="05-transforms.html">3.6 的电零点标定</a> 确定角度基准，再按需要用查找表修正同一圈内随位置变化的读数误差。本节从两组开环扫描点得到一张 32 点表，再把表接回测速和电角计算。</p>
+<p><span id="通用-foc-部署"></span></p>
+<h2 id="通用部署">通用部署</h2>
 <h3 id="对齐正扫反扫">对齐、正扫、反扫</h3>
 <p>标定的角度参考来自开环给定。电流拍执行 <code>Calibration_FastStep</code>，把给定电角和缓慢上升的 Vd 送进已读过的 <code>Foc_VoltageStep</code>，Vq 为 0。达到对齐时间后，用固定目标角收集编码器样本。仅零位模式采完就生成零位候选。LUT 模式沿 32 个目标位置从 0 到 31，再从 31 沿原路回到 0，末点换向前在同一点重新静置并取样。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/calibration.c#L37">标定状态推进</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L508">给定电压输出</a></p>
 <div class="table-wrap"><table>
@@ -108,7 +109,9 @@ return (uint16_t)((int32_t)raw + (int32_t)lroundf(correction));
 <p>整数除法选出左格，余数除以格长得到插值权重。<code>next</code> 用取模将第 31 格的下一点接回第 0 格。<code>lroundf</code> 将插值修正取整，加回原始计数，再转换成单圈无符号计数。无有效表时直接返回输入。</p>
 <p><strong>手算对照。</strong> 取同一个方向归一化计数 3072、零位 1024、21 极对，并令样本年龄为 0。用上面的假定表，3072 落在第 1 格正中，修正为 <code>0.5 × 10 + 0.5 × 30 = +20</code>，返回 3092。只标零位时仍用 3072。两条路径将计数换成机械角，减零位、乘极对数再折回一电圈，电角分别约为 4.16361 rad 与 4.12334 rad。差值约 0.04027 电 rad。这是手算输入，真实表值来自各次扫描。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L71">反馈电角与外推</a></p>
 <p>在模型回放同一段编码器计数时，把 LUT 放在方向归一化之后、计数到机械角之前。并排观察原始计数、加回的修正、修正后的计数和电角，重点检查第 31 格到第 0 格的连续性。修正后的计数也用于多圈位置和速度估计。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L32">位置和速度更新</a></p>
-<h2 id="stm32-部署示例">STM32 部署示例</h2>
+<p><strong>离线核对。</strong> 用一张测试表令第 31 格修正为 <code>+6</code>、第 0 格为 <code>+2</code>。输入 <code>65535 → 0</code> 时，插值并取整的修正都是 <code>+2</code>，修正后单圈计数为 <code>1 → 2</code>。无表路径为 <code>65535 → 0</code>，两条路径按环形差计算都只前进 1 count。把测试表设为无效再重放，结果应回到无表路径。实机重新执行仅零位标定成功后，会发布新零位并清除 <code>lut_valid</code>，后续角度仍按新零位计算。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L19">查表有效位</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/calibration.c#L98">仅零位结果</a></p>
+<p><span id="stm32-部署示例"></span></p>
+<h2 id="stm32-实现">STM32 实现</h2>
 <h3 id="核对扫描入口和采样配置">核对扫描入口和采样配置</h3>
 <p>H743 示例沿用 <a href="04-sampling-zero.html">3.5 的 TIM1 与 ADC 触发</a>、<a href="03-sensors.html">3.4 的 SPI1 编码器</a> 和 <a href="08-can-mit.html">3.10 的 FDCAN1</a>。CubeMX 配置外设。标定阶段和采样计数由应用与课程配置决定，电压上限来自电机配置。<code>accept_calibration</code> 要求 LAB4 或以上、Disabled、无故障、编码器连续 25 份有效样本、母线至少 2 V 和驱动器使能成功。START 和 ZERO 均可在没有旧零位的情况下开始。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L241">接受标定请求</a></p>
 <p>在配套工程目录先离线运行 <code>python tools/can_demo.py cal-lut --voltage-mv 400</code>。起始帧为 <code>0x124  02 01 01 90 00 00 00 00</code>。操作码 <code>02</code> 请求 LUT，<code>01</code> 是事务号，<code>01 90</code> 是大端 400 mV。接着主机安排每秒 50 次 STATUS 请求，在标定期间由应用用该请求续期。仅做零位时用 <code>cal-zero</code>，起始操作码为 <code>05</code>。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.h#L19">协议与标志定义</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L267">标定命令构造</a></p>
@@ -166,18 +169,18 @@ python tools/can_demo.py --send --interface slcan --channel COM5 cal-status
 python tools/can_demo.py --send --interface slcan --channel COM5 cal-read --index 0xFF
 python tools/can_demo.py --send --interface slcan --channel COM5 cal-read --index 0
 </code></pre>
-<p>扫描通常持续数十秒。等待工具轮询完成，确认停机、零位与 LUT 有效，记录读回值。保持停机复位后再查有效标志和表值。若要比较有表和仅零位的两份实物记录，先保留各次读回值，因为成功执行 ZERO 会保存新的零位并清除旧 LUT。出现异常运动、故障或失联，先确认功率已关断，再按失败阶段核对条件。实物结果待记录。 <a href="reference.html#验证记录">验证记录</a></p>
+<p>扫描通常持续数十秒。等待工具轮询完成，确认停机、零位与 LUT 有效，记录零位和至少一个表项。保持停机复位，再查有效标志、同一个表项和零位，核对它们与复位前一致。若要比较有表和仅零位的两份实物记录，先保留各次读回值，因为成功执行 ZERO 会保存新的零位并清除旧 LUT。出现异常运动、故障或失联，先确认功率已关断，再按失败阶段核对条件。实物结果待记录。 <a href="reference.html#验证记录">验证记录</a></p>
 <div class="pager"><a href="08-can-mit.html"><small>上一页</small>3.10 CAN MIT</a><a href="reference.html"><small>下一页</small>配置与验证参考</a></div>
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>
-<li><a href="#通用-foc-部署">通用 FOC 部署</a><ul>
+<li><a href="#通用部署">通用部署</a><ul>
 <li><a href="#对齐正扫反扫">对齐、正扫、反扫</a></li>
 <li><a href="#将扫描误差变成按原始计数等距的表">将扫描误差变成按原始计数等距的表</a></li>
 <li><a href="#在运行时把表接回角度反馈">在运行时把表接回角度反馈</a></li>
 </ul>
 </li>
-<li><a href="#stm32-部署示例">STM32 部署示例</a><ul>
+<li><a href="#stm32-实现">STM32 实现</a><ul>
 <li><a href="#核对扫描入口和采样配置">核对扫描入口和采样配置</a></li>
 <li><a href="#在关桥之后保存并验证">在关桥之后保存并验证</a></li>
 </ul>

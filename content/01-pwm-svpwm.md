@@ -4,7 +4,9 @@
 
 你在 Simulink 里已经能把电压矢量变成三相占空比。部署时要给同一组数找到两个落点。第一个是 C 里的 `duty[3]`，保存每相上桥的理想导通比例。第二个是定时器的三个比较寄存器 `CCR1/2/3`，硬件用它们决定引脚何时翻转。本节先从 MATLAB Function 熟悉的输入和输出读懂固件怎样算 duty，再用 TIM1 把它变成引脚波形。
 
-## 通用 FOC 部署
+<span id="通用-foc-部署"></span>
+
+## 通用部署
 
 ### 从扇区法读懂 min/max SVPWM
 
@@ -60,7 +62,54 @@ return true;
 
 - **先看相间差值。** 并排看 `dU−dV`、`dV−dW`。它们乘以母线电压，就是理想周期平均线电压。差值对不上时，沿 αβ、三相投影和母线归一化向前查。
 - **再看逐相 duty。** 两边若使用相同的零矢量分配，逐相占空比也应对上。若差值一致、三相 duty 同时平移，回查模型的零矢量分配和公共偏移。
-## STM32 部署示例
+
+可以先手算一拍。令 `vα=2 V`、`vβ=0 V`、`Vbus=12 V`，三相参考为 `(2, −1, −1) V`，中点为 `0.5 V`，得到 `duty=(0.625, 0.375, 0.375)`。U 与 V 相的差值乘以 12 V 得到 3 V，和公共偏移前的相间电压差相同。
+
+<span id="stm32-部署示例"></span>
+
+## STM32 实现
+
+### 从计数器看到引脚波形
+
+把 `CNT` 想成 Simulink 里用来比较的三角载波。定时器从 0 数到 ARR 再数回 0，才走完一个载波周期。本例送进 TIM1 的时钟为 240 MHz，`PSC=0`，`ARR=6000`。计数时钟为 `240 MHz/(PSC+1)`，一个周期走 `2×ARR` 个计数节拍。
+
+```text
+f_pwm = f_tim / [(PSC + 1) × 2 × ARR]
+      = 240 MHz / (1 × 2 × 6000) = 20 kHz
+T_pwm = 50 μs
+```
+
+每相的 CCR 相当于一条比较线。对本例的 PWM2，计数靠近峰顶、越过比较线后，主通道参考信号有效。上升段越早跨过 CCR、下降段越晚回到 CCR，主通道的有效区间就越宽。下面只画定时器内部的比较逻辑。 [ST RM0433 的 PWM Mode 与中心对齐波形](https://www.st.com/resource/en/reference_manual/rm0433-stm32h742-stm32h743-753-and-stm32h750-value-line-advanced-armbased-32bit-mcus-stmicroelectronics.pdf)
+
+```text
+计数时刻    谷底       上数经过 CCR        峰顶        下数经过 CCR      谷底
+CNT          0  ───────↗  CCR  ───────↗   ARR  ───────↘  CCR  ───────↘  0
+OCxREF      无效  ────────┘ 有效 ────────────────────────└───── 无效
+                    <--------------- 一个载波周期 --------------->
+```
+
+对一个桥臂，定时器在互补通道的换向之间插入死区。下面画的是导通指令的顺序，实际引脚电平还由极性、输出使能和空闲设置决定。MOE 是定时器的总输出允许，EN_GATE 是功率驱动的使能，两者要分别看。 [定时器互补输出与死区](https://www.st.com/resource/en/application_note/an4013-stm32-crossseries-timer-overview-stmicroelectronics.pdf)
+
+```text
+上数经过 CCR                              下数经过 CCR
+下桥导通 → 两路关断（死区）→ 上桥导通 → 两路关断（死区）→ 下桥导通
+```
+
+改 duty 时还有一条时间线。以本例在上数阶段提交为例，软件写入的是预装载值，峰顶更新事件才把它交给比较器。采样到写入的时间预算要看这个生效边界，后续的采样与中断专题会沿这条时序继续追。 [3.5 采样、中断与一拍控制](04-sampling-zero.md)
+
+```text
+计数方向         上数，接近峰顶                         到峰顶并转为下数
+软件与硬件       软件写 CCR 预装载值 ─────────────────→ 更新事件锁存
+比较器使用       旧 CCR                                新 CCR
+```
+
+现在看板级代码里真正把 duty 送给定时器的这一行。
+
+```c
+uint32_t compare = (uint32_t)((1.0f - duty[i]) * (float)TIM1->ARR);
+```
+
+`duty[i]` 是第 `i` 相的占空比。这里的 `TIM1->ARR` 表示访问 TIM1 寄存器中的计数上限。忽略死区与整数截断时，PWM2 在每半程的有效区间为 `ARR−CCR`，所以比例是 `1−CCR/ARR`。反过来求 CCR，就得到源码里的 `(1-duty)×ARR`。结果转成整数后依次写进三路 CCR。换 PWM 模式或输出极性时，要按新的比较逻辑重新确认这一映射。 [比较值写入](source.md#bsp-board-c-l104)
 
 ### 在 CubeMX 配好 PWM
 
@@ -89,50 +138,13 @@ Counter Mode 里的 Up/Down 是单方向计数，Center Aligned 则在两个方�
 
 配完后按表核对 `MX_TIM1_Init()`。本工程随后在 `Board_Start()` 启动采样和 PWM 通道，并把功率输出留在停机状态。 [定时器初始化](source.md#core-src-tim-c-l44) · [定时器预装载参考](https://www.st.com/resource/en/application_note/an4776-generalpurpose-timer-cookbook-for-stm32-microcontrollers-stmicroelectronics.pdf) · [板级启动](source.md#bsp-board-c-l175)
 
-### 从计数器看到引脚波形
-
-把 `CNT` 想成 Simulink 里用来比较的三角载波。定时器从 0 数到 ARR 再数回 0，才走完一个载波周期。本例计数时钟为 `240 MHz/(PSC+1)`，一个周期走 `2×ARR` 个计数节拍，所以有
-
-```text
-f_pwm = f_tim / [(PSC + 1) × 2 × ARR]
-      = 240 MHz / (1 × 2 × 6000) = 20 kHz
-T_pwm = 50 μs
-```
-
-每相的 CCR 相当于一条比较线。对本例的 PWM2，计数靠近峰顶、越过比较线后，主通道参考信号有效。上升段越早跨过 CCR、下降段越晚回到 CCR，主通道的有效区间就越宽。下面只画定时器内部的比较逻辑。 [ST RM0433 的 PWM Mode 与中心对齐波形](https://www.st.com/resource/en/reference_manual/rm0433-stm32h742-stm32h743-753-and-stm32h750-value-line-advanced-armbased-32bit-mcus-stmicroelectronics.pdf)
-
-```text
-计数时刻    谷底       上数经过 CCR        峰顶        下数经过 CCR      谷底
-CNT          0  ───────↗  CCR  ───────↗   ARR  ───────↘  CCR  ───────↘  0
-OCxREF      无效  ────────┘ 有效 ────────────────────────└───── 无效
-                    <--------------- 一个载波周期 --------------->
-```
-
-对一个桥臂，定时器在互补通道的换向之间插入死区。下面画的是导通指令的顺序，实际引脚电平还由极性、输出使能和空闲设置决定。MOE 是定时器的总输出允许，EN_GATE 是功率驱动的使能，两者要分别看。 [定时器互补输出与死区](https://www.st.com/resource/en/application_note/an4013-stm32-crossseries-timer-overview-stmicroelectronics.pdf)
-
-```text
-上数经过 CCR                              下数经过 CCR
-下桥导通 → 两路关断（死区）→ 上桥导通 → 两路关断（死区）→ 下桥导通
-```
-
-改 duty 时还有一条时间线。以本例在上数阶段提交为例，软件写入的是预装载值，峰顶更新事件才把它交给比较器。采样到写入的时间预算要看这个生效边界，后续的采样与中断专题会沿这条时序继续追。 [3.5 采样、中断与电零点](04-sampling-zero.md)
-
-```text
-计数方向         上数，接近峰顶                         到峰顶并转为下数
-软件与硬件       软件写 CCR 预装载值 ─────────────────→ 更新事件锁存
-比较器使用       旧 CCR                                新 CCR
-```
-
-现在看板级代码里真正把 duty 送给定时器的这一行。
-
-```c
-uint32_t compare = (uint32_t)((1.0f - duty[i]) * (float)TIM1->ARR);
-```
-
-`duty[i]` 是第 `i` 相的占空比。这里的 `TIM1->ARR` 表示访问 TIM1 寄存器中的计数上限。忽略死区与整数截断时，PWM2 在每半程的有效区间为 `ARR−CCR`，所以比例是 `1−CCR/ARR`。反过来求 CCR，就得到源码里的 `(1-duty)×ARR`。结果转成整数后依次写进三路 CCR。换 PWM 模式或输出极性时，要按新的比较逻辑重新确认这一映射。 [比较值写入](source.md#bsp-board-c-l104)
-
 ### 从算法输出接到引脚
 
 LAB1 的固定测试参数会调用 `Foc_VoltageStep()`，随后把 `foc.duty` 交给 `Board_PwmProbeIsr()`。这个路径维持功率驱动关闭。3.3 继续用同一个调制函数，换成可调给定、实际母线和受保护的功率桥输出。 [LAB1 分支](source.md#app-motor-app-c-l498) · [引脚输出接口](source.md#bsp-board-c-l137)
+
+按 3.1 的步骤构建 LAB1。若示例板能在功率断开的条件下独立运行控制侧，可按 3.3 的 SWD 方法下载本次 LAB1 ELF，保持功率断开。程序完成零偏采集并进入 Disabled 后，用板卡允许的低压参考测 MCU 的 PA8、PA9、PA10。 [首次构建](00-project.md#首次构建) · [SWD 下载](02-open-loop.md#保持功率断开用-swd-下载并运行)
+
+- 同一引脚相邻上升沿应相隔约 50 μs。比较同一段记录中三相有效脉宽的变化顺序与 `foc.duty[0..2]`，给计数取整和死区留出差异。
+- 查看驱动使能保持在关闭电平。本例 `Board_PwmProbeIsr()` 让 TIM1 输出波形，同时拉低 PD4。将引脚波形和驱动状态分开记录。 [引脚输出接口](source.md#bsp-board-c-l137) · [驱动与引脚配置](reference.md#示例配置)
 
 开始 3.3 前，准备好目标板的三组 PWM 与相线对应关系、驱动器的有效电平与关断条件、控制侧供电和调试器接法。若用另一款 STM32，先在它的 CubeMX 工程和板级实现中逐项对照本章的时钟、通道、极性、死区与触发设置。 [板级配置检查表](reference.md#示例配置) · [下一节 3.3 开环部署](02-open-loop.md)

@@ -4,7 +4,9 @@
 
 这一节把 Simulink 里的电压开环接到实物。你会沿同一条通路找到模型信号、C 变量和板上输出，然后构建 LAB2，下载到板上，用小幅 Vq 给定完成一次短时开环和停机。手边没有板时，可以沿现有模型波形读代码，并对照本页的离线输出。实机下载与试转待验证。
 
-## 通用 FOC 部署
+<span id="通用-foc-部署"></span>
+
+## 通用部署
 
 ### 将模型里的给定电角接到 SVPWM
 
@@ -53,13 +55,7 @@ else if (state == APP_OPEN)
 
 `request_state` 先检查阶段是否允许目标状态、电流零偏是否采完，并要求首次开环从 Disabled 出发且无故障。开环目标可在功率输出就绪后更新。应用收到停机请求或检测到故障时，要让输出立即进入安全状态，并清掉本次运行的目标。换板时需要给应用提供等价的就绪检查和关断接口。 [状态入口](source.md#app-motor-app-c-l116) · [零偏完成时进入 Disabled](source.md#app-motor-app-c-l467)
 
-## STM32 部署示例
-
-LAB1 和 LAB2 用的是同一套逆 Park 与 SVPWM。LAB1 的观察分支每秒推进一圈电角，用固定 `Vd=0 V`、`Vq=1 V` 和名义母线 24 V 算 duty。它将功率驱动使能保持为低，只让 MCU 引脚有 PWM。LAB2 开放 `APP_OPEN`，电角速度和 Vq 由运行时命令给出，母线来自实际采样，duty 经受保护的提交路径才能送给已使能的驱动。两个阶段的载波仍是 20 kHz。 [LAB1 与 Open 分支](source.md#app-motor-app-c-l498) · [观察与运行提交](source.md#bsp-board-c-l118)
-
-### 追踪示例板的启桥检查
-
-**源码摘录**。这是首次进入 Open 等运行态时的检查。省略了前面的停机和重复请求分支，以及成功后发布状态的临界区。
+**源码摘录**。继续在 `request_state()` 读首次进入 Open 等运行态时的检查。这里省略了停机、重复请求和成功发布状态的分支。
 
 ```c
 if (encoder_good < 25 || !rotor.valid ||
@@ -77,11 +73,29 @@ if (!Board_EnableDriver())
 ```
 
 1. 编码器须累计 25 个有效样本、当前角有效，且最近样本年龄不超过 10 ms。Open 的旋转电压使用给定角，编码器仍负责健康检查和运行保护。
-2. `target != APP_OPEN` 在本次请求中为假，所以首次开环可在后续标定专题再标电零点。
+2. `target != APP_OPEN` 在本次请求中为假，所以首次开环可先使用给定电角，到 3.6 再建立反馈的电角基准。 [3.6 电零点与波形验算](05-transforms.md)
 3. 母线值无效或小于 2 V 时拒绝启动。2 V 是这份程序的拒绝门槛。实际供电要按实板和电机的额定条件。
 4. `Board_EnableDriver` 负责准备功率驱动并确认就绪，失败会记录驱动故障。通过后应用在短临界区复查状态和故障，清旧目标、记录命令时间，并将状态改为 Open。 [板级接口](source.md#bsp-board-h) · [状态发布](source.md#app-motor-app-c-l150)
 
-电脑再发目标时，`MotorApp_AcceptCommand` 只接受新鲜、状态匹配且无故障的命令。应用一次性写入 `reference`，按配置限制电角速度与 Vq，并更新时间。电流中断在下一拍读取这份完整目标。电脑脚本以 50 Hz 更新给定，板上仍每 50 μs 用最新给定算一次。 [目标接收与限制](source.md#app-motor-app-c-l306)
+电脑再发目标时，`MotorApp_AcceptCommand` 只接受新鲜、状态匹配且无故障的命令。应用一次性写入 `reference`，按配置限制电角速度与 Vq，并更新时间。控制程序每拍读取完整的最新目标。本例电脑脚本以 50 Hz 更新给定，板上每 50 μs 算一次。 [目标接收与限制](source.md#app-motor-app-c-l306)
+
+LAB1 和 LAB2 用的是同一套逆 Park 与 SVPWM。LAB1 每秒推进一圈电角，用固定 `Vd=0 V`、`Vq=1 V` 和名义母线 24 V 算 duty，结果交给观察接口。LAB2 的 `APP_OPEN` 使用可调电角速度、Vq 和实际采样的母线，结果交给运行接口。回到自己的模型，先对照这两条路径分别使用了哪些输入，再跟读它们的硬件落点。 [LAB1 与 Open 分支](source.md#app-motor-app-c-l498)
+
+<span id="stm32-部署示例"></span>
+
+## STM32 实现
+
+### 追踪示例板的启桥检查
+
+找到三个板级接口，读清楚应用什么时候可以送出功率输出。
+
+| 接口 | 在 H743 示例板上做什么 |
+|---|---|
+| `Board_EnableDriver()` | 准备功率驱动器并检查配置和故障输入。失败时走关桥路径。 |
+| `Board_DriverFault()` | 读取 PD5 的低有效驱动故障信号。 |
+| `Board_StopIsr()` | 先清除 TIM1 的总输出允许位 MOE，再拉低 PD4 的驱动使能。 |
+
+在 LAB1 中，`Board_PwmProbeIsr()` 保持 PD4 为低，只允许 TIM1 输出供观察。LAB2 的 `Board_ApplyDutyIsr()` 在应用允许且检查通过后，才把当拍的 duty 交给已准备好的功率输出。两个阶段的载波都是 20 kHz。 [板级接口](source.md#bsp-board-h) · [观察与运行提交](source.md#bsp-board-c-l118) · [关断入口](source.md#bsp-board-c-l69)
 
 **源码摘录**。回到电流中断，运行分支最后检查这拍能不能提交。
 

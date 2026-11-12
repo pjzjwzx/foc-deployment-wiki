@@ -1,10 +1,12 @@
 # 3.4 电流与角度传感器
 
-[上一节 3.3 电压开环](02-open-loop.md) · [下一节 3.5 采样、中断与电零点](04-sampling-zero.md)
+[上一节 3.3 电压开环](02-open-loop.md) · [下一节 3.5 采样、中断与一拍控制](04-sampling-zero.md)
 
 上一节的电压开环已经能从给定电角和电压算出 duty。本节把 Simulink 中理想的三相电流和转子角换成实际测量。仍用给定电角驱动电压，只记录测得的量。手边没有板也可以用同一段模型波形做换算和回放，核对数据到了哪里。
 
-## 通用 FOC 部署
+<span id="通用-foc-部署"></span>
+
+## 通用部署
 
 ### 从 ADC 计数还原三相电流
 
@@ -40,7 +42,7 @@ if (sample.fresh)
 
 `EncoderSample_t sample` 为本次调用留出一份结构体。`&sample` 把它的地址交给驱动，驱动通过地址写回数据。`fresh` 表示取到新完成的帧，`valid` 表示该帧可用。`&&` 会先检查左边，校验失败时跳过 `Rotor_Update`。此时结构体里的 `raw_u16` 可能仍是上次好帧的角，不能当成新位置。 [应用接收与健康检查](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L382-L413) · [驱动写回](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/encoder.c#L383-L446)
 
-`Rotor_Update` 先检查时间戳，再把原始角统一成约定方向的全圈计数，随后把修正后的计数乘 `2π/65536`，得到机械弧度。没有启用 LUT 时，修正步骤直接返回方向归一化后的计数。`rotor->sample_time_us` 和 `rotor->valid` 随成功更新一起写入。应用每五个 20 kHz 电流节拍请求一次新角，名义间隔 250 μs。两次角样本之间仍会有电流帧。连续收到 8 个坏帧，或在运行时有效角缺失、样本年龄超过 10 ms，都会走编码器故障路径。 [角度方向与更新](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L14-L68) · [调度分频](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/lab_config.h#L18-L32)
+`Rotor_Update` 先检查时间戳，再把原始角统一成约定方向的全圈计数，随后把修正后的计数乘 `2π/65536`，得到机械弧度。没有启用 LUT 时，修正步骤直接返回方向归一化后的计数。`rotor->sample_time_us` 和 `rotor->valid` 随成功更新一起写入。实际电流环和角度采样可以有不同周期。更换传感器时，先确定一圈的计数、方向、样本时间的定义和有效条件，再决定控制环可以使用多旧的样本。 [角度方向与更新](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L14-L68)
 
 ### 用模型波形做一次离线回放
 
@@ -52,7 +54,9 @@ if (sample.fresh)
 | 单圈机械角，rad | `sample.raw_u16`，全圈统一刻度 | `rotor.raw_angle_u16` 已统一方向，`rotor.mechanical_angle_rad` 还包含可能的 LUT 修正 |
 | 采样时刻，s | `sample.timestamp_us`，μs | `rotor.sample_time_us`，随最近有效角更新 |
 
-## STM32 部署示例
+<span id="stm32-部署示例"></span>
+
+## STM32 实现
 
 ### 电流通道和板级比例
 
@@ -63,6 +67,8 @@ H743 示例板的三个注入组分别取 A 相 PB1/ADC1 IN5、B 相 PA7/ADC2 IN
 ### TLE5012 角度怎样交给应用
 
 本例用 SPI1 单数据线发命令、收角度。DMA 在外设和内存间搬运字节，应用不在电流回调中等待整帧传完。驱动请求时记下 MCU 微秒时间并拉低片选，TX 完成后切换为 RX，接收角字段和安全字。之后取样入口校验 CRC、状态和角字段，把结果和请求时间戳交给应用。故障恢复期间也可能收到一帧但没有可用新角。 [发起请求](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/encoder.c#L250-L316) · [TX、RX 事务](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/tle5012.c#L397-L469) · [角字段与有效位](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/tle5012.c#L483-L549)
+
+应用每五个 20 kHz 电流节拍请求一次新角，名义间隔 250 μs。连续收到 8 个坏帧，或在运行时有效角缺失、样本年龄超过 10 ms，都会走编码器故障路径。 [应用接收与健康检查](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L382-L413) · [调度分频](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/lab_config.h#L18-L32)
 
 在 CubeMX 打开 **Connectivity → SPI1**，再按表回查对应的生成代码。换传感器时先看其通信方式、供电、电平与引脚表，再按需要实现同样的角度样本接口。
 
@@ -85,4 +91,4 @@ H743 示例板的三个注入组分别取 A 相 PB1/ADC1 IN5、B 相 PA7/ADC2 IN
 
 1. 以 `LAB_STAGE=3` 构建并下载，按上一节的 UART4 接法观察 JustFloat 波形。上电后保持 Disabled，等零偏采集完成。在调试器中看 `MotorApp_Diagnostics.adc_zero[0..2]`，对照波形 ch0、ch1、ch2 应在 0 A 附近。若某相原始读数一直贴近量程端点，或关桥后仍有明显偏置，先停止并查引脚、前端和比例。 [工具与构建](00-project.md) · [UART4 波形观察](02-open-loop.md#uart4-波形观察)
 2. 保持桥关，在机械装置允许手转时慢慢沿规定的正方向转轴。观察 ch3 的单圈机械角是否上升，以及跨圈时是否从接近 `2π` 回到 0。注明手转的是电机轴还是输出轴。调整方向后需重新构建，并重做角度标定。
-3. 按上一节的低电压短时开环步骤试转，记录相序、实际转向和三相电流波形。三相和接近零可以作为一致性检查，再用引脚映射和下一节的坐标验算确认各相。LAB3 的 ch4 是由测量角算出的电角，ch5 是开环给定电角。完成电零点以前，先观察变化方向和连续性。若有故障、转子卡住或电流明显异常，立即停机。 [LAB3 六通道映射](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L414-L440)
+3. 按上一节的低电压短时开环步骤试转，记录相序、实际转向和三相电流波形。三相和接近零可以作为一致性检查，再用引脚映射和 3.6 的坐标验算确认各相。LAB3 的 ch4 是由测量角算出的电角，ch5 是开环给定电角。完成电零点以前，先观察变化方向和连续性。若有故障、转子卡住或电流明显异常，立即停机。 [LAB3 六通道映射](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L414-L440) · [3.6 开环波形验算](05-transforms.md)

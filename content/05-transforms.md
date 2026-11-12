@@ -1,8 +1,20 @@
-# 3.6 坐标变换与开环验算
+# 3.6 电零点、坐标变换与开环波形验算
 
-[上一节 3.5 采样、中断与电零点](04-sampling-zero.md) · [下一节 3.7 PI 电流闭环](06-current-pi.md)
+[上一节 3.5 采样、中断与一拍控制](04-sampling-zero.md) · [下一节 3.7 离散 PI 电流闭环与初步调试](06-current-pi.md)
 
-## 通用 FOC 部署
+用一次对齐把编码器角接到 FOC 的电角基准，再保持电压开环，观察三相电流经过 Clarke、Park 后的波形。先让模型和固件处理同一组输入，再用真实电流与角度判断测量链是否可以接入闭环。
+
+<span id="通用-foc-部署"></span>
+
+## 通用部署
+
+### 给真实电角定义零点
+
+模型知道转子磁场指向。实物编码器的机械零刻度由安装位置决定。把定子电压矢量固定在程序约定的电角 0，给 d 轴小电压且 q 轴为 0，等待能自由转动的转子对齐并静止。此时的机械角记为 `θ0`。完成对齐后，若不考虑样本延迟，反馈电角就是 `wrap((θm − θ0) × p)`，其中 `p` 是极对数。
+
+电流零偏与电零点各减在自己的量上。电流减 ADC 基线后乘 A/count，电角先减对齐得到的机械角再乘极对数。示例把电零点以机械计数保存在 `electrical_zero_count`，进公式时才换成机械弧度。角样本比这拍电流更早时，还会在机械角上加 `速度 × 样本年龄`，然后减零位、乘极对数、折回一圈。 [电角计算](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L71-L80)
+
+**手算输入**。机械零位为 1 rad，最近机械角为 1.1 rad，样本比电流触发早 200 μs，机械速度 10 rad/s，电机有 21 极对。**答案**　先外推 `10 × 0.0002 = 0.002 rad`，再算 `(1.1 + 0.002 − 1) × 21 = 2.142 rad`，已在一圈以内。对应 Simulink 时可以先令速度为 0 对齐基准，再恢复速度项。
 
 ### 用一组输入核对 Clarke 和 Park
 
@@ -44,19 +56,69 @@ Iq = −iα sin θe + iβ cos θe    = −1 A
 
 ### 怎样看出开环数据可用于闭环
 
-取开环起步之后的一段稳定记录。将电流、反馈角、给定角的时间轴对齐。跨过 0 的角度先展开，比较方向和斜率。下面是**观察判据**，实际幅值受电机、电压、负载及采样影响。
+先用模型构造一段**已知正确的输入**。设三相电流的峰值为 `I`、A 相电流相位为 `φ`，则三相输入为 `I·cos φ`、`I·cos(φ−2π/3)`、`I·cos(φ+2π/3)`。本工程的 Clarke 得到 `iα=I·cos φ`、`iβ=I·sin φ`。若反馈电角在整个区间为 `φ+δ`，其中 `δ` 固定，Park 的结果就是 `Id=I·cos δ`、`Iq=−I·sin δ`。在模型里改变 `δ`，观察两条 dq 曲线怎样改变其稳态值。把反馈角改成反向，再看 dq 曲线怎样摆动。
+
+再取开环起步之后的一段稳定记录。将电流、反馈角、给定角的时间轴对齐。跨过 0 的角度先展开，比较方向和斜率。下面是**观察判据**，实际幅值受电机、电压、负载及采样影响。
 
 | 看哪几条波形 | 一段可用于继续验证的记录 | 优先排查 |
 |---|---|---|
 | 三相电流 `ia/ib/ic` | 电机同步转动且绕组均衡时，三相通常围绕零值，幅值相近、相位依次差约 120 电角度，三相和接近零。开关纹波和失真允许存在 | 静止时已偏移就查零偏。单相幅值特别小或过大就查通道、量程和换算。电流符号全反时，三相和仍可能为零 |
+| Clarke 的 `iα/iβ` | 平衡且近似正弦时，两条曲线的幅值接近、相差约 90 电角度，αβ 平面上的轨迹近圆 | 三相输入相同但 αβ 回放不一致时，查 Clarke 的系数、幅值约定和相序。轨迹有固定偏心或明显失真时，也检查三相输入 |
 | 给定、反馈电角 | 同步跟随的区间中，展开后斜率和方向接近，允许相差一段角度。停住、持续滑移、换向或失步时，另选稳定区间 | 斜率反号查编码器方向和相序。倍率明显不符查机械角到电角的极对数。给定角动而反馈角基本不动时，先确认电机是否实际转动 |
 | 用反馈角算出的 Id/Iq | 同步、稳速且电流基波均衡时，两条曲线常围绕某个值小幅变化。开环可出现非零 Id，Iq 的大小也随负载变化 | 先用记录的同一组三相和反馈角重算。重算吻合但稳态 dq 明显摆动时，回查相序、反馈角方向、角度倍率及取样对齐。固定电零偏移会旋转 dq，可用低压对齐来区分 |
 
-回放时依次比对三相 A、Clarke 的 αβ、Park 的 Id/Iq。先找到第一个对不上的中间量。若模型和固件都给出同样的异常波形，下一步查输入和运行条件。没有板时，可用自己的仿真波形做同样的逐列比较。
+回放时按同一时间戳依次比对三相 A、Clarke 的 αβ、Park 的 Id/Iq。先找到第一个对不上的中间量。若模型和固件都给出同样的异常波形，下一步查输入和运行条件。没有板时，可用自己的仿真波形做同样的逐列比较。
 
-## STM32 部署示例
+<span id="stm32-部署示例"></span>
 
-沿用 LAB4（`LAB_TRANSFORMS`）和 3.5 的电零位。示例在三相 ADC 到齐后换算电流，用本拍采样的触发参考时刻计算反馈电角，再调用 `Foc_Measure`。上板前先检查零位有效，按 3.3 完成启停和 UART4 观察的准备。LAB4 的 JustFloat 六通道依次为 `ia, ib, ic, Id, Iq, 反馈电角`。给定角可另看 `MotorApp_Diagnostics.open_angle_rad`。 [电流中断和遥测](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L414) · [3.3 开环部署和 UART4](02-open-loop.md)
+## STM32 实现
+
+### 用 LAB4 标定电零点
+
+在配套固件目录先运行离线命令。它打印开始帧 `0x124  05 01 01 90 00 00 00 00`，其中 `05` 选单点对齐，`01 90` 表示 400 mV。
+
+```powershell
+python tools/can_demo.py cal-zero --voltage-mv 400
+```
+
+应用收到请求后检查阶段至少为 LAB4、当前 Disabled、无故障、编码器已有足够有效帧、母线电压与标定电压满足条件。驱动准备成功后调用 `Calibration_Start`，本次 `lut` 参数为假。应用随后发布 `APP_CALIBRATION` 状态。电流中断每拍推进 `Calibration_FastStep`。它用 4000 拍在 0.2 s 内将 d 轴电压爬到目标，保持电角 0，等待 10 000 拍即 0.5 s，再开始接收 256 个有效新角。按 4 kHz 名义频率计，取样约需 64 ms。此时的 `Foc_VoltageStep` 用 d 轴对齐电压、q 轴 0 V。 [请求检查](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L241-L284) · [标定状态机](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/calibration.c#L10-L83) · [应用输出电压](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L508-L517)
+
+**源码摘录**。每次收到有效新角，`Calibration_OnSample` 在收样阶段累计方向归一化后的计数。以下省略第一帧设置 `first_count` 的分支，后面的 LUT 分支留到专题。
+
+```c
+c->sum += (int64_t)c->first_count + delta(raw, c->first_count);
+if (++c->samples < CAL_SAMPLES)
+    return;
+uint16_t mean = (uint16_t)(c->sum / (int64_t)CAL_SAMPLES);
+if (!c->lut_mode)
+{
+    c->result.zero_count = mean;
+    c->result.zero_valid = 1;
+    c->result.lut_valid = 0;
+    c->state = CAL_PROCESS;
+    return;
+}
+```
+
+`delta` 求相对于第一帧的环形短差。`++c->samples` 先加一再比较，前 255 帧累加后就返回。第 256 帧得到整数平均，保存为机械零位，标记电零点有效和 LUT 无效。后台见到 `CAL_PROCESS` 就先关桥，再处理、保存并读回验证。成功后才把结果交给 `rotor`，并等一个新角重新建立反馈。失败时记录标定故障。接下来用已标定电角检查 Park，完整扫圈和查表放到 [LUT 专题](09-lut.md)。 [圆周差与单点结果](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/calibration.c#L19-L105) · [关桥和保存](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L587-L609) · [Flash 读回](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/flash_store.c)
+
+**离线过关**。把 65534、0、2 当成仅用于演算的三个对齐样本。相对首点展开后为 65534、65536、65538，平均为 65536，折回全圈计数后是 0。这个例子用来检验平均前的跨圈展开。
+
+#### 上板对齐与检查
+
+按 3.5 的方法先确认采样节拍，用 LAB4（`LAB_TRANSFORMS`）构建并下载。保持 Disabled，确认三相零偏已完成且编码器工作正常。 [采样与提交节拍](04-sampling-zero.md#实物选做验证采样与提交节拍)
+
+确认电机配置、机械自由转动条件、空载、母线和停机方法。按 [3.3 的 CAN 步骤](02-open-loop.md) 选适配器，例中把 `COM5` 换成实际端口。标定中有异常电流、故障或机械卡滞时立即停机并检查。
+
+```powershell
+python tools/can_demo.py --send --interface slcan --channel COM5 --bitrate 1000000 cal-zero --voltage-mv 400
+```
+
+等脚本轮询完成并停机。在脚本打印的完成回包中检查 `flags`。零位有效位 `0x08` 应置位，LUT 有效位 `0x01` 应清零。可用相同适配器和 `--send` 选项执行 `cal-read --index 0xFF`，在 Disabled 下读取电零点计数并在重启后核对。0.4 V 是本页的请求示例，实际能否对齐与供电、摩擦、负载及电机配置有关。 [标定轮询与读回工具](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L193-L276) · [零位读取条件](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L285-L303)
+
+### 记录 LAB4 开环波形
+
+沿用 LAB4 和上面校验过的电零位。示例在三相 ADC 到齐后换算电流，用本拍采样的触发参考时刻计算反馈电角，再调用 `Foc_Measure`。按 3.3 完成启停和 UART4 观察的准备。LAB4 的 JustFloat 六通道依次为 `ia, ib, ic, Id, Iq, 反馈电角`。导出这六条后可用前三相离线重算 αβ。要比较给定角与反馈角的相位差，另外记录 `MotorApp_Diagnostics.open_angle_rad`，并与电流记录对齐时基。 [电流中断和遥测](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L414-L493) · [3.3 开环部署和 UART4](02-open-loop.md)
 
 先离线确认短时低压开环命令，再按 3.3 的供电、限流、空载和停止条件决定是否实发。下面命令只生成报文和启停计划。
 
@@ -64,4 +126,4 @@ Iq = −iα sin θe + iβ cos θe    = −1 A
 python tools/can_demo.py open --electrical-speed 10 --vq 0.2 --duration 2
 ~~~
 
-已有有效电零位时，可以再做一次低压对齐，观察电流极性。转子在正 d 轴对齐电压下稳定后，反馈电角应接近电角零点，Id 应主要为正，Iq 相对小。开环转动时再按上表观察稳态区间。若 0.2 V 未带动转子，记录这一现象并停机检查运行条件。出现异常电流、振动或跟随丢失时，停止输出再排查。配套工程的实板结果待记录。 [验证记录](reference.md#验证记录)
+开环转动后保存一个稳态区间，用同一组三相和反馈电角重算 αβ、Id/Iq，再把 Id/Iq 叠到 LAB4 的波形上。把同步条件和最先出现不一致的信号写进记录。若 0.2 V 未带动转子，记录这一现象并停机检查运行条件。出现异常电流、振动或跟随丢失时，停止输出再排查。配套工程的实板结果待记录。 [验证记录](reference.md#验证记录)

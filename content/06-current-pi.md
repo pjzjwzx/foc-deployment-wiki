@@ -1,8 +1,12 @@
-# 3.7 PI 电流闭环
+# 3.7 离散 PI 电流闭环与初步调试
 
-[上一节 3.6 坐标变换与开环验算](05-transforms.md) · [下一节 3.8 从一拍控制理解软件分层](06a-software-architecture.md)
+[上一节 3.6 电零点、坐标变换与开环波形验算](05-transforms.md) · [下一节 3.8 从一拍控制理解软件分层](06a-software-architecture.md)
 
-## 通用 FOC 部署
+电压开环直接给定 Vd/Vq。接入电流闭环后，两只离散 PI 根据每拍测得的 Id/Iq 计算需要的电压。本节先手算一拍和一次饱和，再用小电流阶跃判断初始增益怎样调整。
+
+<span id="通用-foc-部署"></span>
+
+## 通用部署
 
 ### 从模型的电流误差找到 C 中的两只 PI
 
@@ -20,6 +24,8 @@ ok = ok && Foc_CurrentStep(&foc, angle, bus);
 ~~~
 
 `reference` 保存应用接受的最新命令，反馈在每拍重算。`ok &&` 先检查之前的操作是否成功，通过后才进入 `Foc_CurrentStep`。函数取目标和反馈，算出本拍电压及 duty，再把结果和是否成功交还给应用。 [电流环定义](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L134)
+
+先只看一个轴。第 `k` 拍取误差 `e[k] = i_ref[k] − i[k]`。比例项 `Kp·e[k]` 随当前误差立即变化。积分候选值 `I_try = I_prev + Ki·Ts·e[k]` 把误差累加到上拍保存的积分，给出试算电压 `v_raw = Kp·e[k] + I_try`。当误差逐渐归零，已经存下的积分仍能提供维持目标电流所需的电压。接下来沿代码检查这次积分是否允许保存，以及输出最多能给多少电压。 [候选积分与输出](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L139-L155)
 
 ### 从电机参数得到第一组 PI 系数
 
@@ -72,7 +78,23 @@ return Foc_VoltageStep(foc, angle, vd, vq, bus_voltage_V);
 
 再单独核对饱和分支。取 `ed=0`、`eq=1 A`、旧 q 积分 11.5 V，其余条件相同。候选积分为 11.565 V，未限制 Vq 为 12.295 V。试限幅到 12 V 后，`eq·(raw_q−vq)` 为正，积分保留 11.5 V。用它重算的 12.23 V 在调制前再次限到 12 V。用模型的同一组输入核对候选积分、保存的积分和最终电压。
 
-## STM32 部署示例
+### 用小阶跃判断初始增益
+
+先在模型或电脑上的测试中保持 `Id_ref=0`，给 Iq 参考一个小台阶。记下采样周期、母线、限幅、初始积分和电机参数。将参考、电流反馈和 Vd/Vq 画在同一时间轴上，读出响应方向、上升时间、超调、稳定后的误差以及电压是否贴住上限。先用未饱和的结果判断增益，再单独用离线饱和算例核对积分能否停止累加或在反向误差下退出饱和。 [限幅和积分写回](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L134-L155)
+
+| 观察结果 | 下一轮怎么做 |
+|---|---|
+| Iq 一开始向相反方向走，或 Id 出现明显异常 | 先退出闭环，回查 3.6 的相序、电流方向、电零点和 Park 角度 |
+| Vd/Vq 矢量持续接近电压上限 | 检查母线和限制，换一个更小的阶跃确认未饱和响应 |
+| 响应缓慢且有电压余量 | 在模型中小幅提高带宽，比较上升时间和超调，再判断是否值得在板上验证 |
+| 超调明显或有反复振铃 | 停机后先查采样到 PWM 的延迟，降低带宽，从基线条件重做 |
+| 电流持续偏离目标且电压有余量 | 检查零偏、实际参考和积分写回，再在模型里单独改变 Ki 观察误差消退速度 |
+
+在模型里分别改一次 Kp 或 Ki，观察比例项怎样改变初始响应、积分项怎样改变后续误差。上板的起始调整按固件的 `MOTOR_CURRENT_BANDWIDTH_RAD_S` 进行，它会按 `Foc_Init` 的公式同时更新 Kp 和 Ki。每轮只改这一个设置，保留原值，保持同一电机、母线、负载、目标和初始状态。先确认响应稳定，再比较快慢。 [带宽参数](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/motor_config.h#L51-L59) · [增益初始化](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L51-L72)
+
+<span id="stm32-部署示例"></span>
+
+## STM32 实现
 
 ### 同一拍把 duty 交给 TIM1
 
@@ -104,4 +126,6 @@ TIM1 以 240 MHz 中心对齐计数，上数到 6000 需 25 μs，下数再需 2
 python tools/can_demo.py current --id 0 --iq 0.1 --duration 1
 ~~~
 
-JustFloat 的六通道依次为 `Id_ref, Id, Iq_ref, Iq, Vd, Vq`。检查 Iq 是否朝参考方向移动、Id 是否回到接近目标、Vd/Vq 的矢量是否持续碰到电压限制。出现持续顶限、反向或振荡时先停机，回查相序、反馈极性、零位与参数。固定 Iq 会产生力矩，空载可能加速，关注速度与停机条件。遥测以名义 1 kHz 观察趋势，逐拍时序须另量 ADC 触发到提交，并结合 `max_isr_cycles` 判断应用耗时。实板结果待记录。 [遥测定义](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L442) · [启停与观察步骤](02-open-loop.md) · [验证记录](reference.md#验证记录)
+1. 记录基线设置，按 3.3 选择 CAN 适配器并确认停机方法。若执行实发，从适合该电机的小 Iq 短时阶跃开始。固定 Iq 会产生力矩，空载可能加速，观察速度并在异常时停机。
+2. JustFloat 的六通道依次为 `Id_ref, Id, Iq_ref, Iq, Vd, Vq`。以记录到的 `Iq_ref` 变化时刻为阶跃起点。确认 Iq 的方向、Id 的偏离程度和电压余量，再按前面的表判断。UART4 的名义 1 kHz 遥测用于看趋势。需要判断短暂超调、积分写回或单拍提交时，分别补做快速记录或离线测试。`max_isr_cycles` 可辅助核对应用耗时。
+3. 只有基线方向正确、响应稳定且有电压余量时，才用同一阶跃对比另一组初始增益。先停机，在 `config/motor_config.h` 小幅修改带宽并重建下载。把两次反馈叠在同一时间轴上，记录带宽、母线、负载和采样条件。如果超调或振荡恶化，停止输出并恢复已验证的设置。退出模式或故障时，`Foc_Reset` 会清掉旧目标和积分。实板结果待记录。 [遥测与诊断](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L442-L466) · [停机状态处理](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L116-L135) · [启停与观察步骤](02-open-loop.md) · [验证记录](reference.md#验证记录)

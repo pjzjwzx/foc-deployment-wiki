@@ -4,7 +4,11 @@
 
 在 Simulink 里，点击运行后模型按设定步长更新。实际设备上电后，固件要自己准备输入和输出、进入安全的初始状态，再启动定时执行。这一节从 `main()` 读懂应用怎样接手，再看 STM32 怎样准备外设。
 
-## 通用 FOC 部署
+<span id="通用-foc-部署"></span>
+
+## 通用部署
+
+### 找到控制应用的入口
 
 打开示例的 `int main(void)`。这是 C 程序入口。`int` 是返回类型，`void` 表示无参数。先在函数里找到下面这段，外设初始化完成后，应用从这里接手。 [打开 main.c](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/main.c#L73)
 
@@ -21,6 +25,10 @@
 
 `名字()` 表示调用函数。`if` 计算括号中的条件，条件为真才执行花括号内的语句。这里按顺序检查板级准备、初始化应用状态、启动采样和定时器通道。`!` 把返回的真假反过来，`||` 表示「或」。例如 `Board_Init()` 返回 `false` 时，第一个条件成立，后两个调用跳过，程序进入 `Error_Handler()` 关桥并停留在错误处理循环。三个返回值均为 `true` 时，`main()` 继续进入后台。 [板级准备](source.md#bsp-board-c-l144) · [应用初始化](source.md#app-motor-app-c-l72) · [启动采样与通道](source.md#bsp-board-c-l175) · [错误处理](source.md#core-src-main-c-l265)
 
+打开 `MotorApp_Init()`，找出 `Foc_Init(&foc)`、`Rotor_Init(&rotor)` 和 `state = APP_OFFSET`。它们准备控制状态、转子反馈状态，并让应用从采集电流零偏开始。对照 Simulink 的初始条件，标出哪些状态在控制开始前就要有值。最后跟回 `main()`，找到成功后启动采样的 `Board_Start()`。 [应用初始化](source.md#app-motor-app-c-l72)
+
+### 区分周期控制与后台循环
+
 **源码摘录 2｜启动成功后的后台循环**
 
 ~~~c
@@ -35,9 +43,13 @@
   /* USER CODE END 3 */
 ~~~
 
-`while (1)` 的条件始终成立，`MotorApp_Background()` 每次返回后便开始下一次循环，继续处理通信与维护。模型中每隔一个步长运行的控制计算，在固件里由采样事件启动。可以把后台理解成等候采样的间隙里继续运行的工作。 [后台调用处](source.md#core-src-main-c-l133) · [后台函数](source.md#app-motor-app-c-l575) · [3.5 采样时序](04-sampling-zero.md)
+`while (1)` 的条件始终成立，`MotorApp_Background()` 每次返回后便开始下一次循环，继续处理通信与维护。模型中每隔一个步长运行的控制计算，在固件里由采样事件启动。可以把后台理解成等候采样的间隙里继续运行的工作。 [后台调用处](source.md#core-src-main-c-l133) · [后台函数](source.md#app-motor-app-c-l575) · [3.5 采样、中断与一拍控制](04-sampling-zero.md)
 
-## STM32 部署示例
+<span id="stm32-部署示例"></span>
+
+## STM32 实现
+
+### 从 CubeMX 生成代码走到应用调用
 
 **源码摘录 3｜应用接手之前执行的 STM32 初始化**
 
@@ -62,11 +74,13 @@ int main(void)
 
 [继续读 3.2 的 TIM1 和三相 PWM](01-pwm-svpwm.md)
 
-## 软件操作手册
+### 软件操作手册
 
-下面按固定版本 `chapter-3` 打开、构建或重新生成。在线版提供教学摘录和配置对照。 [示例工程](https://github.com/pjzjwzx/foc-stm32-example) · [下载 chapter-3 ZIP](https://github.com/pjzjwzx/foc-stm32-example/archive/refs/tags/chapter-3.zip) [首次构建](#首次构建) · [在副本重新生成](#在副本重新生成)
+下面按固定版本 `chapter-3` 打开、构建或重新生成。 [示例工程](https://github.com/pjzjwzx/foc-stm32-example) · [下载 chapter-3 ZIP](https://github.com/pjzjwzx/foc-stm32-example/archive/refs/tags/chapter-3.zip)
 
-### 1　准备工具和文件
+[准备工具](#1-准备工具和文件) · [打开配置](#2-在-cubemx-打开已有配置) · [导入工程](#3-在-cubeide-导入找到并跟随代码) · [首次构建](#首次构建) · [在副本重新生成](#在副本重新生成)
+
+#### 1　准备工具和文件
 
 MCU 是板上执行程序的芯片。这套工程的 MCU 是 **STM32H743VIT6**。电脑上的两个工具分别处理它的配置和程序。
 
@@ -110,9 +124,9 @@ CubeIDE ── 将 .project 登记到 workspace ─┘
 
 可以把工程放在 **D:\FOC-Learn\project**，把工作区放在 **D:\FOC-Learn\workspace**。这两个都是示例，后面浏览文件时用你自己的路径。workspace 会记录你打开过哪些工程、面板如何排布等信息，源码仍放在工程目录。
 
-### 2　在 CubeMX 打开已有配置
+#### 2　在 CubeMX 打开已有配置
 
-#### 2.1 找到正确的工程
+##### 2.1 找到正确的工程
 
 1. 启动独立的 **STM32CubeMX**。
 2. 点击 **File → Load Project…**，浏览到工程根目录，选择 **FOC_Arclab_H743_V3.ioc**，点击 **Open**。首页的打开已有工程入口也会进入同一个文件选择步骤。
@@ -121,7 +135,7 @@ CubeIDE ── 将 .project 登记到 workspace ─┘
 
 CubeMX 的项目文件原来由 6.15.0 写入。此前的生成验证使用 6.16.1 加载它并保留旧数据库。两处版本号分别表示写入配置的工具版本与打开它的工具版本。 [ST 官方界面与 Load Project/Continue 说明](https://dev.st.com/stm32cube-docs/stm32cubemx/6.18.1/en/docs/markup/CubeMX_UserManual/chapters/04_4_stm32cubemx_user_interface.html) · [本工程版本验证](reference.md#验证记录)
 
-#### 2.2 先认识四个位置
+##### 2.2 先认识四个位置
 
 把配置界面当成板子的地图。按表从上到下看，每次只核对一个结果。
 
@@ -148,9 +162,9 @@ htim1.Init.CounterMode = TIM_COUNTERMODE_CENTERALIGNED3;
 
 这就是本课程使用 CubeMX 的方法。先找选项，再找生成的 C，随后观察这句对整个信号路径有什么影响。第一次打开时使用现有值即可继续。
 
-### 3　在 CubeIDE 导入、找到并跟随代码
+#### 3　在 CubeIDE 导入、找到并跟随代码
 
-#### 3.1 导入现成工程
+##### 3.1 导入现成工程
 
 1. 启动 **STM32CubeIDE**。在 **Workspace Launcher** 里点 **Browse…**，选一个空目录，例如 **D:\FOC-Learn\workspace**，再点 **Launch**。如果已经打开其他工作区，用 **File → Switch Workspace → Other…** 切换。
 2. 点 **File → Import…**。在导入窗口展开 **General**，选择 **Existing Projects into Workspace**，点 **Next**。
@@ -162,7 +176,7 @@ htim1.Init.CounterMode = TIM_COUNTERMODE_CENTERALIGNED3;
 
 ST 的 2.0 工作流第 2.4 节还展示了 **File → STM32 Project Create/Import → STM32CubeMX/STM32CubeIDE Project** 入口。官方截图可以帮助识别导入向导及导入完成后的工程树。本章采用上面的 Existing Projects 路线。 [ST 官方 CubeIDE 2.0 导入截图](https://community.st.com/stm32-mcus-60/stm32cubeide-2-0-0-workflow-tutorial-160701) · [STM32CubeIDE 用户手册](https://www.st.com/resource/en/user_manual/um2609-stm32cubeide-user-manual-stmicroelectronics.pdf)
 
-#### 3.2 练一次查找和跳转
+##### 3.2 练一次查找和跳转
 
 | 区域 | 用来做什么 | 现在试一下 |
 |---|---|---|
@@ -173,9 +187,9 @@ ST 的 2.0 工作流第 2.4 节还展示了 **File → STM32 Project Create/Impo
 
 用本页前面的启动判断练一次跳转。在 `main()` 里找到 `MotorApp_Init()`，跳到它的定义，再返回到原来的条件表达式。 [回看调用处](source.md#core-src-main-c-l123)
 
-### 首次构建
+#### 首次构建
 
-#### 4.1 找到课程阶段
+##### 4.1 找到课程阶段
 
 在 Project Explorer 展开 **config → lab_config.h**。若文件夹显示折叠，按 **Ctrl+Shift+R**，输入 **lab_config.h**，选择本工程里的文件。打开后定位这一段。
 
@@ -208,7 +222,7 @@ ST 的 2.0 工作流第 2.4 节还展示了 **File → STM32 Project Create/Impo
 
 阶段决定这一份固件开放哪些实验功能。保存会更新电脑上的源文件，构建会生成包含这次变化的 ELF。上板时还需下载本次 ELF，再让芯片运行。 [对应配置文件](source.md#config-lab-config-h)
 
-#### 4.2 得到 Release ELF
+##### 4.2 得到 Release ELF
 
 1. 在工程树中选中工程，右键 **Build Configurations → Set Active → Release**。Release 是一组现成的构建选项。它决定输出目录和优化设置。
 2. 右键工程，点 **Build Project**。如果菜单中选了 Debug，产物会出现在 Debug 目录。先检查活动配置，再找文件。
@@ -224,7 +238,7 @@ Build Finished. 0 errors, 0 warnings.
 
 ELF 是电脑上的构建产物，里面包含程序和调试所需的符号。找到本次生成的 ELF 就完成了首次构建。3.2 用生成代码读 PWM，3.3 再按本手册的构建方法准备并下载 LAB2。
 
-#### 4.3 构建报错时，从第一条开始
+##### 4.3 构建报错时，从第一条开始
 
 先看 Console 中第一条具体报错。Problems 里常会同时列出后续错误，第一条通常更接近真正原因。下列为报错样式示例。
 
@@ -235,7 +249,7 @@ ELF 是电脑上的构建产物，里面包含程序和调试所需的符号。�
 | undefined reference to MotorApp_Init | 编译器见到了函数声明，链接器找不到实现 | 确认 app 下的实现文件参与了构建。若刚用 CubeMX 重新生成，按下面的方法恢复工程配置 |
 | 成功却找不到 Release/…elf | 可能在看另一份工程，或使用了 Debug | 核对 Console 的目标名、活动配置和工程的 Location |
 
-### 在副本重新生成
+#### 在副本重新生成
 
 通过首次构建后，再做这项实验。这里沿用现有 .ioc 的参数，练习从配置生成 C 和恢复构建。
 
@@ -251,11 +265,11 @@ python tools/build.py --restore-project
 
 [本工程的重新生成与恢复说明](reference.md#示例配置) · [实际验证结果](reference.md#验证记录)
 
-### 工具操作核对
+#### 工具操作核对
 
 CubeMX 的 TIM1 Counter Mode 应为中心对齐模式 3，`tim.c` 中可找到对应赋值。CubeIDE 的 Location 应指向解压后的工程根目录，并能从 `main()` 跳到 `MotorApp_Init()` 的定义。首次构建采用 `LAB_STAGE=LAB_PWM_SVPWM`，输出在 **Release/FOC_Arclab_H743_V3.elf**。
 
-## 这份代码从哪里来
+### 这份代码从哪里来
 
 本文以同一份 20 kHz 教学工程为例，使用 STM32H743 电机驱动板与角度编码器。源码定位索引记录了与本课对应的文件及行号。 [源码定位](source.md)
 

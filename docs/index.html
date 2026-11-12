@@ -18,7 +18,7 @@
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html" aria-current="page">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与电零点</a><a href="05-transforms.html">3.6 坐标变换与开环验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html" aria-current="page">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
 <header class="article-header"><span class="eyebrow">FOC 部署 Wiki</span><h1>如何从基础工科到电机控制FOC实操-简易精准的无痛入门教程</h1></header>
@@ -69,16 +69,16 @@
 <td>从 ADC 计数和编码器帧得到安培与机械角。</td>
 </tr>
 <tr>
-<td><a href="04-sampling-zero.html">3.5 采样、中断与电零点</a></td>
-<td>从离散步长追到触发、控制计算和 CCR 生效，再看电角基准。</td>
+<td><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a></td>
+<td>沿时序读触发、反馈帧、控制计算和 CCR 生效，再查 CubeMX 配置。</td>
 </tr>
 <tr>
-<td><a href="05-transforms.html">3.6 坐标变换与开环验算</a></td>
-<td>保持电压开环，沿 Clarke、Park 核对波形。</td>
+<td><a href="05-transforms.html">3.6 电零点、坐标变换与开环波形验算</a></td>
+<td>建立电角基准，用同一组三相电流与反馈电角回放 Clarke、Park。</td>
 </tr>
 <tr>
-<td><a href="06-current-pi.html">3.7 PI 电流闭环</a></td>
-<td>跟一拍离散 PI，从电流误差走到限幅与占空比。</td>
+<td><a href="06-current-pi.html">3.7 离散 PI 电流闭环与初步调试</a></td>
+<td>算一拍 PI，读积分和限幅，用小阶跃看跟踪与饱和。</td>
 </tr>
 <tr>
 <td><a href="06a-software-architecture.html">3.8 从一拍控制理解软件分层</a></td>
@@ -102,7 +102,7 @@
 <p>本章的源码摘录、配置与构建步骤对应 <code>chapter-3</code>。要跟着构建或上板，请下载该版本，解压后按 3.1 导入工程。 <a href="https://github.com/pjzjwzx/foc-stm32-example">示例工程</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/archive/refs/tags/chapter-3.zip">下载 chapter-3 ZIP</a></p>
 <h2 id="怎么使用这份-wiki">怎么使用这份 Wiki</h2>
 <ul>
-<li><strong>读通用 FOC 部署。</strong> 从 3.1 开始，用自己的 Simulink 信号对照 C 变量、控制周期和运行条件。</li>
+<li><strong>读通用部署。</strong> 每节从 Simulink 信号出发，沿 C 代码核对变量、控制周期和运行条件。手边没有同款板卡时，可以用自己的模型、测试输入或日志做对照。</li>
 <li><strong>看 STM32 部署示例。</strong> 想在板上复现时，按 3.1 的工具手册导入并构建。CubeMX 部分用 STM32H743 作示范，换器件时按实际定时器、触发和关断接口配置。</li>
 <li><strong>准备上板。</strong> 先核对板卡、电机与电源条件，再进入 3.3 的操作流程。软件构建及 CAN 离线预览已经核对，实机试转待验证。</li>
 </ul>

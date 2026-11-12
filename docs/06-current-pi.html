@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
-<title>3.7 PI 电流闭环 · FOC 部署 Wiki</title>
+<title>3.7 离散 PI 电流闭环与初步调试 · FOC 部署 Wiki</title>
 <link rel="stylesheet" href="assets/wiki.css">
 <script src="assets/search-index.js" defer></script>
 <script src="assets/wiki.js" defer></script>
@@ -18,12 +18,14 @@
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与电零点</a><a href="05-transforms.html">3.6 坐标变换与开环验算</a><a href="06-current-pi.html" aria-current="page">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html" aria-current="page">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
-<header class="article-header"><span class="eyebrow">第 3 章 · 3.7</span><h1>3.7 PI 电流闭环</h1></header>
-<p><a href="05-transforms.html">上一节 3.6 坐标变换与开环验算</a> · <a href="06a-software-architecture.html">下一节 3.8 从一拍控制理解软件分层</a></p>
-<h2 id="通用-foc-部署">通用 FOC 部署</h2>
+<header class="article-header"><span class="eyebrow">第 3 章 · 3.7</span><h1>3.7 离散 PI 电流闭环与初步调试</h1></header>
+<p><a href="05-transforms.html">上一节 3.6 电零点、坐标变换与开环波形验算</a> · <a href="06a-software-architecture.html">下一节 3.8 从一拍控制理解软件分层</a></p>
+<p>电压开环直接给定 Vd/Vq。接入电流闭环后，两只离散 PI 根据每拍测得的 Id/Iq 计算需要的电压。本节先手算一拍和一次饱和，再用小电流阶跃判断初始增益怎样调整。</p>
+<p><span id="通用-foc-部署"></span></p>
+<h2 id="通用部署">通用部署</h2>
 <h3 id="从模型的电流误差找到-c-中的两只-pi">从模型的电流误差找到 C 中的两只 PI</h3>
 <p>把模型里手动给定的 Vd/Vq 换成电流控制器的输出。实测三相电流经 Clarke、Park 得到 Id/Iq，用各自的目标减去反馈，得到两轴误差。示例在 Current 状态把命令写进控制对象，随后把本拍反馈电角和实测母线交给电流环。</p>
 <p><strong>源码摘录</strong>。ADC 采样已换算为 A，<code>Foc_Measure</code> 已更新反馈，母线与状态检查已通过。这里省略了开环、标定和速度等其他分支。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L541">电流环调用</a></p>
@@ -35,6 +37,7 @@
 ok = ok &amp;&amp; Foc_CurrentStep(&amp;foc, angle, bus);
 </code></pre>
 <p><code>reference</code> 保存应用接受的最新命令，反馈在每拍重算。<code>ok &amp;&amp;</code> 先检查之前的操作是否成功，通过后才进入 <code>Foc_CurrentStep</code>。函数取目标和反馈，算出本拍电压及 duty，再把结果和是否成功交还给应用。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L134">电流环定义</a></p>
+<p>先只看一个轴。第 <code>k</code> 拍取误差 <code>e[k] = i_ref[k] − i[k]</code>。比例项 <code>Kp·e[k]</code> 随当前误差立即变化。积分候选值 <code>I_try = I_prev + Ki·Ts·e[k]</code> 把误差累加到上拍保存的积分，给出试算电压 <code>v_raw = Kp·e[k] + I_try</code>。当误差逐渐归零，已经存下的积分仍能提供维持目标电流所需的电压。接下来沿代码检查这次积分是否允许保存，以及输出最多能给多少电压。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L139-L155">候选积分与输出</a></p>
 <h3 id="从电机参数得到第一组-pi-系数">从电机参数得到第一组 PI 系数</h3>
 <p>先用低速的每轴电流近似 <code>v = R·i + L·di/dt</code>。它的电压到电流传递函数为 <code>1/(Ls+R)</code>。PI 的传递函数为 <code>Kp + Ki/s</code>。令 <code>Ki/Kp = R/L</code>，在这个简化模型中，PI 的零点抵消电流对象的极点，剩下的理想闭环是一阶，带宽为 <code>Kp/L</code>。选定带宽 <code>ωc</code> 后，用 <code>Kp = L·ωc</code>、<code>Ki = R·ωc</code> 起步。d、q 轴用各自的电感，同用相电阻。反电动势、轴间耦合、采样和计算延迟都会影响实机的响应，需要用小电流阶跃核对。</p>
 <div class="table-wrap"><table>
@@ -116,7 +119,41 @@ return Foc_VoltageStep(foc, angle, vd, vq, bus_voltage_V);
 </tbody>
 </table></div>
 <p>再单独核对饱和分支。取 <code>ed=0</code>、<code>eq=1 A</code>、旧 q 积分 11.5 V，其余条件相同。候选积分为 11.565 V，未限制 Vq 为 12.295 V。试限幅到 12 V 后，<code>eq·(raw_q−vq)</code> 为正，积分保留 11.5 V。用它重算的 12.23 V 在调制前再次限到 12 V。用模型的同一组输入核对候选积分、保存的积分和最终电压。</p>
-<h2 id="stm32-部署示例">STM32 部署示例</h2>
+<h3 id="用小阶跃判断初始增益">用小阶跃判断初始增益</h3>
+<p>先在模型或电脑上的测试中保持 <code>Id_ref=0</code>，给 Iq 参考一个小台阶。记下采样周期、母线、限幅、初始积分和电机参数。将参考、电流反馈和 Vd/Vq 画在同一时间轴上，读出响应方向、上升时间、超调、稳定后的误差以及电压是否贴住上限。先用未饱和的结果判断增益，再单独用离线饱和算例核对积分能否停止累加或在反向误差下退出饱和。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L134-L155">限幅和积分写回</a></p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>观察结果</th>
+<th>下一轮怎么做</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Iq 一开始向相反方向走，或 Id 出现明显异常</td>
+<td>先退出闭环，回查 3.6 的相序、电流方向、电零点和 Park 角度</td>
+</tr>
+<tr>
+<td>Vd/Vq 矢量持续接近电压上限</td>
+<td>检查母线和限制，换一个更小的阶跃确认未饱和响应</td>
+</tr>
+<tr>
+<td>响应缓慢且有电压余量</td>
+<td>在模型中小幅提高带宽，比较上升时间和超调，再判断是否值得在板上验证</td>
+</tr>
+<tr>
+<td>超调明显或有反复振铃</td>
+<td>停机后先查采样到 PWM 的延迟，降低带宽，从基线条件重做</td>
+</tr>
+<tr>
+<td>电流持续偏离目标且电压有余量</td>
+<td>检查零偏、实际参考和积分写回，再在模型里单独改变 Ki 观察误差消退速度</td>
+</tr>
+</tbody>
+</table></div>
+<p>在模型里分别改一次 Kp 或 Ki，观察比例项怎样改变初始响应、积分项怎样改变后续误差。上板的起始调整按固件的 <code>MOTOR_CURRENT_BANDWIDTH_RAD_S</code> 进行，它会按 <code>Foc_Init</code> 的公式同时更新 Kp 和 Ki。每轮只改这一个设置，保留原值，保持同一电机、母线、负载、目标和初始状态。先确认响应稳定，再比较快慢。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/motor_config.h#L51-L59">带宽参数</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L51-L72">增益初始化</a></p>
+<p><span id="stm32-部署示例"></span></p>
+<h2 id="stm32-实现">STM32 实现</h2>
 <h3 id="同一拍把-duty-交给-tim1">同一拍把 duty 交给 TIM1</h3>
 <p><strong>执行示意</strong>。沿 3.5 的触发和三相帧汇合进入应用，电流运算成功后才尝试写定时器。</p>
 <pre><code class="language-text">ADC 帧 → 减零偏并换算 A → Clarke/Park → 电流 PI
@@ -133,18 +170,23 @@ return Foc_VoltageStep(foc, angle, vd, vq, bus_voltage_V);
 <p>在电脑用表中的同一组电流、角度、母线和初值对照模型与 C。已有配套工程的读者也可以运行 <code>python tools/check.py</code>。实机用 LAB5（<code>LAB_CURRENT_PI</code>），先确认电零位有效、开环方向与电流极性已核对。按 3.3 的条件准备低电压、限流、短时启停。先运行离线命令观察报文，再决定是否按实物步骤发送。</p>
 <pre><code class="language-powershell">python tools/can_demo.py current --id 0 --iq 0.1 --duration 1
 </code></pre>
-<p>JustFloat 的六通道依次为 <code>Id_ref, Id, Iq_ref, Iq, Vd, Vq</code>。检查 Iq 是否朝参考方向移动、Id 是否回到接近目标、Vd/Vq 的矢量是否持续碰到电压限制。出现持续顶限、反向或振荡时先停机，回查相序、反馈极性、零位与参数。固定 Iq 会产生力矩，空载可能加速，关注速度与停机条件。遥测以名义 1 kHz 观察趋势，逐拍时序须另量 ADC 触发到提交，并结合 <code>max_isr_cycles</code> 判断应用耗时。实板结果待记录。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L442">遥测定义</a> · <a href="02-open-loop.html">启停与观察步骤</a> · <a href="reference.html#验证记录">验证记录</a></p>
-<div class="pager"><a href="05-transforms.html"><small>上一页</small>3.6 坐标变换与开环验算</a><a href="06a-software-architecture.html"><small>下一页</small>3.8 软件分层</a></div>
+<ol>
+<li>记录基线设置，按 3.3 选择 CAN 适配器并确认停机方法。若执行实发，从适合该电机的小 Iq 短时阶跃开始。固定 Iq 会产生力矩，空载可能加速，观察速度并在异常时停机。</li>
+<li>JustFloat 的六通道依次为 <code>Id_ref, Id, Iq_ref, Iq, Vd, Vq</code>。以记录到的 <code>Iq_ref</code> 变化时刻为阶跃起点。确认 Iq 的方向、Id 的偏离程度和电压余量，再按前面的表判断。UART4 的名义 1 kHz 遥测用于看趋势。需要判断短暂超调、积分写回或单拍提交时，分别补做快速记录或离线测试。<code>max_isr_cycles</code> 可辅助核对应用耗时。</li>
+<li>只有基线方向正确、响应稳定且有电压余量时，才用同一阶跃对比另一组初始增益。先停机，在 <code>config/motor_config.h</code> 小幅修改带宽并重建下载。把两次反馈叠在同一时间轴上，记录带宽、母线、负载和采样条件。如果超调或振荡恶化，停止输出并恢复已验证的设置。退出模式或故障时，<code>Foc_Reset</code> 会清掉旧目标和积分。实板结果待记录。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L442-L466">遥测与诊断</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L116-L135">停机状态处理</a> · <a href="02-open-loop.html">启停与观察步骤</a> · <a href="reference.html#验证记录">验证记录</a></li>
+</ol>
+<div class="pager"><a href="05-transforms.html"><small>上一页</small>3.6 电零点与开环波形验算</a><a href="06a-software-architecture.html"><small>下一页</small>3.8 软件分层</a></div>
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>
-<li><a href="#通用-foc-部署">通用 FOC 部署</a><ul>
+<li><a href="#通用部署">通用部署</a><ul>
 <li><a href="#从模型的电流误差找到-c-中的两只-pi">从模型的电流误差找到 C 中的两只 PI</a></li>
 <li><a href="#从电机参数得到第一组-pi-系数">从电机参数得到第一组 PI 系数</a></li>
 <li><a href="#跟一拍离散积分限幅和调制">跟一拍离散积分、限幅和调制</a></li>
+<li><a href="#用小阶跃判断初始增益">用小阶跃判断初始增益</a></li>
 </ul>
 </li>
-<li><a href="#stm32-部署示例">STM32 部署示例</a><ul>
+<li><a href="#stm32-实现">STM32 实现</a><ul>
 <li><a href="#同一拍把-duty-交给-tim1">同一拍把 duty 交给 TIM1</a></li>
 <li><a href="#用阶跃核对参考反馈和饱和">用阶跃核对参考、反馈和饱和</a></li>
 </ul>

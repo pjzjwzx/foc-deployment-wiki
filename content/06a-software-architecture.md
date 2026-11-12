@@ -1,8 +1,12 @@
 # 3.8 从一拍控制理解软件分层
 
-[上一节 3.7 PI 电流闭环](06-current-pi.md) · [下一节 3.9 速度估计与速度闭环](07-speed.md)
+[上一节 3.7 离散 PI 电流闭环与初步调试](06-current-pi.md) · [下一节 3.9 速度估计与速度闭环](07-speed.md)
 
-## 通用 FOC 部署
+从电流环接收的目标和送出的 duty 各追一次，再跟一遍过流停机。学完这一节，就能根据故障或改动的位置找到该读的接口。
+
+<span id="通用-foc-部署"></span>
+
+## 通用部署
 
 ### 从已经见过的一行找层的边界
 
@@ -35,7 +39,17 @@ if (running() && (!ok || !Board_ApplyDutyIsr(foc.duty)))
 
 共享数据也有接口。若后台逐字段写入新命令时被电流中断抢占，中断可能拿到新 Id 和旧 Iq。应把整份参考作为一次发布。后台读取反馈时也要在同一个时刻取得相互关联的量，例如 Iq、运行状态和故障位。可用短临界区复制少量字段，之后再完成发送。将跨环境的等待和耗时操作放在控制截止点之外。
 
-## STM32 部署示例
+### 沿一条电流命令走到下一拍
+
+从 `Protocol_Decode()` 的输出开始。解码后的电流目标带 A 单位，接着交给 `MotorApp_AcceptCommand()`。在 `APP_CURRENT` 且无故障时，应用检查时间、限幅并发布整份参考。到了 `MotorApp_CurrentIsr()`，Current 分支从这份参考取出 `Id/Iq`，用当拍的反馈调用 `Foc_CurrentStep()`。相同的目标可以沿用多拍，每拍都要检查计算和 PWM 提交的结果。 [解码入口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.c#L29) · [应用接受命令](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L306) · [电流环调用](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L541)
+
+再走一次过流分支。测得的相电流超出阈值时，`MotorApp_FaultIsr()` 调用板级关断，锁存故障并复位控制状态。后台稍后读取状态与故障快照，生成回复。这条路径的验收顺序是先确认功率输出已停止，再确认后台报告与应用状态一致。 [故障入口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L53) · [后台入口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L575)
+
+**离线核对。** 用同一份合法目标分别跟读 Disabled 和 Current 两个分支，标出参考和命令时间在哪条分支更新。再假定下一份反馈超限，写出关断、故障锁存、状态回复三个事件的次序，指出本拍还能否提交 PWM。
+
+<span id="stm32-部署示例"></span>
+
+## STM32 实现
 
 ### 沿 0x121 跟到电流环
 
@@ -68,3 +82,5 @@ if (running() && (!ok || !Board_ApplyDutyIsr(foc.duty)))
 | `Core/`、`Drivers/` | CubeMX 初始化、IRQ 入口和 HAL | 按目标芯片配置时钟、引脚、PWM 与死区、ADC 触发和中断。若使用 Flash 保存，还要核对预留区与擦写粒度 |
 
 阅读跨层调用时，先在 `foc.h` 或 `board.h` 看声明怎样约定参数和返回值，再到对应的 `.c` 看函数定义。编译器依据声明检查调用，链接器把调用接到具体实现。只有声明、没有编进对应的定义时，链接器会报告 `undefined reference`。沿着本节的两条路径，可以定位要改的是命令字段、允许条件、算法参数，还是硬件接口。后续速度环只增加一种生成 Iq 参考的方法，仍然用本章的电流环和提交路径。 [控制接口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.h) · [板级接口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.h) · [换板参考](reference.md#换用其他-stm32)
+
+**换板练习。** 在目标板的时序图上标出完整采样帧何时可读、时间戳表示哪个事件、`Board_ApplyDutyIsr()` 最晚何时能提交，以及故障时关断经过哪些硬件。先用模拟板级接口注入过流检查故障分支。实物验收时用不驱动电机的方式检查允许信号与输出关断时序，记录信号和时间。

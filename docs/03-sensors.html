@@ -18,13 +18,14 @@
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html" aria-current="page">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与电零点</a><a href="05-transforms.html">3.6 坐标变换与开环验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html" aria-current="page">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
 <header class="article-header"><span class="eyebrow">第 3 章 · 3.4</span><h1>3.4 电流与角度传感器</h1></header>
-<p><a href="02-open-loop.html">上一节 3.3 电压开环</a> · <a href="04-sampling-zero.html">下一节 3.5 采样、中断与电零点</a></p>
+<p><a href="02-open-loop.html">上一节 3.3 电压开环</a> · <a href="04-sampling-zero.html">下一节 3.5 采样、中断与一拍控制</a></p>
 <p>上一节的电压开环已经能从给定电角和电压算出 duty。本节把 Simulink 中理想的三相电流和转子角换成实际测量。仍用给定电角驱动电压，只记录测得的量。手边没有板也可以用同一段模型波形做换算和回放，核对数据到了哪里。</p>
-<h2 id="通用-foc-部署">通用 FOC 部署</h2>
+<p><span id="通用-foc-部署"></span></p>
+<h2 id="通用部署">通用部署</h2>
 <h3 id="从-adc-计数还原三相电流">从 ADC 计数还原三相电流</h3>
 <p>在 Simulink 里找出电机模块输出的 <code>ia、ib、ic</code>。这三条线通常已经是安培。把它们接到 MCU 时，先约定相序和正方向。本工程中数组下标 <code>0、1、2</code> 对应 A、B、C，进入控制算法前先把采样计数换成 A。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L462-L493">应用采样入口</a></p>
 <p><strong>源码摘录</strong>。在 <code>MotorApp_CurrentIsr</code> 逐相处理当前帧，以下两行算电流并记录结果，中间的过流检查略去。</p>
@@ -48,7 +49,7 @@ if (sample.fresh)
     if (sample.valid &amp;&amp; Rotor_Update(&amp;rotor, sample.raw_u16, sample.timestamp_us))
 </code></pre>
 <p><code>EncoderSample_t sample</code> 为本次调用留出一份结构体。<code>&amp;sample</code> 把它的地址交给驱动，驱动通过地址写回数据。<code>fresh</code> 表示取到新完成的帧，<code>valid</code> 表示该帧可用。<code>&amp;&amp;</code> 会先检查左边，校验失败时跳过 <code>Rotor_Update</code>。此时结构体里的 <code>raw_u16</code> 可能仍是上次好帧的角，不能当成新位置。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L382-L413">应用接收与健康检查</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/encoder.c#L383-L446">驱动写回</a></p>
-<p><code>Rotor_Update</code> 先检查时间戳，再把原始角统一成约定方向的全圈计数，随后把修正后的计数乘 <code>2π/65536</code>，得到机械弧度。没有启用 LUT 时，修正步骤直接返回方向归一化后的计数。<code>rotor-&gt;sample_time_us</code> 和 <code>rotor-&gt;valid</code> 随成功更新一起写入。应用每五个 20 kHz 电流节拍请求一次新角，名义间隔 250 μs。两次角样本之间仍会有电流帧。连续收到 8 个坏帧，或在运行时有效角缺失、样本年龄超过 10 ms，都会走编码器故障路径。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L14-L68">角度方向与更新</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/lab_config.h#L18-L32">调度分频</a></p>
+<p><code>Rotor_Update</code> 先检查时间戳，再把原始角统一成约定方向的全圈计数，随后把修正后的计数乘 <code>2π/65536</code>，得到机械弧度。没有启用 LUT 时，修正步骤直接返回方向归一化后的计数。<code>rotor-&gt;sample_time_us</code> 和 <code>rotor-&gt;valid</code> 随成功更新一起写入。实际电流环和角度采样可以有不同周期。更换传感器时，先确定一圈的计数、方向、样本时间的定义和有效条件，再决定控制环可以使用多旧的样本。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L14-L68">角度方向与更新</a></p>
 <h3 id="用模型波形做一次离线回放">用模型波形做一次离线回放</h3>
 <p>从模型导出 <code>时间、ia、ib、ic、机械角</code>。先保留原图，再复制一小段数据，用你的 ADC 零偏、增益和编码器刻度生成假计数，按上面的代码换回。检查相电流差异是否处于量化误差量级，角度对比先统一方向并折回一圈。把一帧角标成无效，再走一次条件分支，观察旧角是否被保留。这里得到的是用模型量构造的回放，板上噪声、增益和方向由下面的实物步骤核对。</p>
 <div class="table-wrap"><table>
@@ -77,12 +78,14 @@ if (sample.fresh)
 </tr>
 </tbody>
 </table></div>
-<h2 id="stm32-部署示例">STM32 部署示例</h2>
+<p><span id="stm32-部署示例"></span></p>
+<h2 id="stm32-实现">STM32 实现</h2>
 <h3 id="电流通道和板级比例">电流通道和板级比例</h3>
 <p>H743 示例板的三个注入组分别取 A 相 PB1/ADC1 IN5、B 相 PA7/ADC2 IN7、C 相 PC2_C/ADC3 IN0。CubeMX 的 <strong>Pinout &amp; Configuration → Analog → ADC1/ADC2/ADC3</strong> 中，先核对引脚、单端通道和注入 Rank 1。生成的 <code>MX_ADCx_Init</code> 分别写入 <code>ADC_CHANNEL_5</code>、<code>ADC_CHANNEL_7</code>、<code>ADC_CHANNEL_0</code>。三路结果进入 <code>raw[0..2]</code>。这一节先核对通道与量纲，下一节再按一整拍讲触发和中断。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/FOC_Arclab_H743_V3.ioc">本板 .ioc</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/adc.c#L35-L249">三路 ADC 配置</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L307-L322">读取三路结果</a></p>
 <p><code>board_config.h</code> 使用 3.0 V 参考、0.5 mΩ 分流电阻和外置 INA241A3 的 50 V/V 增益。14 bit 的单次转换最大码为 16383，注入结果以 16 次累加后右移两位，满刻度是 <code>16383 × 16 ÷ 4 = 65532 counts</code>。因此程序使用 <code>3.0 ÷ (65532 × 50 × 0.0005) ≈ 0.00183117 A/count</code>，并设符号为 <code>+1</code>。启动中的 <code>HAL_ADCEx_Calibration_Start</code> 校准 ADC 本身，应用稍后求的 <code>adc_zero[]</code> 包含整条电流测量链的基线。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/board_config.h#L7-L22">板级参数</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L144-L160">ADC 硬件校准</a></p>
 <h3 id="tle5012-角度怎样交给应用">TLE5012 角度怎样交给应用</h3>
 <p>本例用 SPI1 单数据线发命令、收角度。DMA 在外设和内存间搬运字节，应用不在电流回调中等待整帧传完。驱动请求时记下 MCU 微秒时间并拉低片选，TX 完成后切换为 RX，接收角字段和安全字。之后取样入口校验 CRC、状态和角字段，把结果和请求时间戳交给应用。故障恢复期间也可能收到一帧但没有可用新角。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/encoder.c#L250-L316">发起请求</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/tle5012.c#L397-L469">TX、RX 事务</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/tle5012.c#L483-L549">角字段与有效位</a></p>
+<p>应用每五个 20 kHz 电流节拍请求一次新角，名义间隔 250 μs。连续收到 8 个坏帧，或在运行时有效角缺失、样本年龄超过 10 ms，都会走编码器故障路径。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L382-L413">应用接收与健康检查</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/lab_config.h#L18-L32">调度分频</a></p>
 <p>在 CubeMX 打开 <strong>Connectivity → SPI1</strong>，再按表回查对应的生成代码。换传感器时先看其通信方式、供电、电平与引脚表，再按需要实现同样的角度样本接口。</p>
 <div class="table-wrap"><table>
 <thead>
@@ -126,19 +129,19 @@ if (sample.fresh)
 <ol>
 <li>以 <code>LAB_STAGE=3</code> 构建并下载，按上一节的 UART4 接法观察 JustFloat 波形。上电后保持 Disabled，等零偏采集完成。在调试器中看 <code>MotorApp_Diagnostics.adc_zero[0..2]</code>，对照波形 ch0、ch1、ch2 应在 0 A 附近。若某相原始读数一直贴近量程端点，或关桥后仍有明显偏置，先停止并查引脚、前端和比例。 <a href="00-project.html">工具与构建</a> · <a href="02-open-loop.html#uart4-波形观察">UART4 波形观察</a></li>
 <li>保持桥关，在机械装置允许手转时慢慢沿规定的正方向转轴。观察 ch3 的单圈机械角是否上升，以及跨圈时是否从接近 <code>2π</code> 回到 0。注明手转的是电机轴还是输出轴。调整方向后需重新构建，并重做角度标定。</li>
-<li>按上一节的低电压短时开环步骤试转，记录相序、实际转向和三相电流波形。三相和接近零可以作为一致性检查，再用引脚映射和下一节的坐标验算确认各相。LAB3 的 ch4 是由测量角算出的电角，ch5 是开环给定电角。完成电零点以前，先观察变化方向和连续性。若有故障、转子卡住或电流明显异常，立即停机。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L414-L440">LAB3 六通道映射</a></li>
+<li>按上一节的低电压短时开环步骤试转，记录相序、实际转向和三相电流波形。三相和接近零可以作为一致性检查，再用引脚映射和 3.6 的坐标验算确认各相。LAB3 的 ch4 是由测量角算出的电角，ch5 是开环给定电角。完成电零点以前，先观察变化方向和连续性。若有故障、转子卡住或电流明显异常，立即停机。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L414-L440">LAB3 六通道映射</a> · <a href="05-transforms.html">3.6 开环波形验算</a></li>
 </ol>
-<div class="pager"><a href="02-open-loop.html"><small>上一页</small>3.3 电压开环部署</a><a href="04-sampling-zero.html"><small>下一页</small>3.5 采样、中断与电零点</a></div>
+<div class="pager"><a href="02-open-loop.html"><small>上一页</small>3.3 电压开环部署</a><a href="04-sampling-zero.html"><small>下一页</small>3.5 采样、中断与一拍控制</a></div>
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>
-<li><a href="#通用-foc-部署">通用 FOC 部署</a><ul>
+<li><a href="#通用部署">通用部署</a><ul>
 <li><a href="#从-adc-计数还原三相电流">从 ADC 计数还原三相电流</a></li>
 <li><a href="#把转子角当作带时间的样本">把转子角当作带时间的样本</a></li>
 <li><a href="#用模型波形做一次离线回放">用模型波形做一次离线回放</a></li>
 </ul>
 </li>
-<li><a href="#stm32-部署示例">STM32 部署示例</a><ul>
+<li><a href="#stm32-实现">STM32 实现</a><ul>
 <li><a href="#电流通道和板级比例">电流通道和板级比例</a></li>
 <li><a href="#tle5012-角度怎样交给应用">TLE5012 角度怎样交给应用</a></li>
 <li><a href="#实物选做先关桥手转再短时开环">实物选做｜先关桥手转，再短时开环</a></li>

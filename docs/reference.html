@@ -18,7 +18,7 @@
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与电零点</a><a href="05-transforms.html">3.6 坐标变换与开环验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html" aria-current="page">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html" aria-current="page">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
 <header class="article-header"><span class="eyebrow">附录</span><h1>配置与验证参考</h1></header>
@@ -54,7 +54,7 @@
 </tr>
 <tr>
 <td>采样 NVIC</td>
-<td>ADC1/2 共用 ADC 中断，ADC3 使用独立中断，抢占优先级均为 1，子优先级均为 0。 <a href="04-sampling-zero.html">3.5 采样、中断与电零点</a></td>
+<td>ADC1/2 共用 ADC 中断，ADC3 使用独立中断，抢占优先级均为 1，子优先级均为 0。 <a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a></td>
 </tr>
 <tr>
 <td>FDCAN1</td>
@@ -142,16 +142,16 @@
 <td>从 ADC 计数和编码器帧得到安培与机械角。</td>
 </tr>
 <tr>
-<td><a href="04-sampling-zero.html">3.5 采样、中断与电零点</a></td>
-<td>从离散步长追到触发、控制计算和 CCR 生效，再看电角基准。</td>
+<td><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a></td>
+<td>沿同一时间轴核对触发、反馈帧、控制计算和 PWM 生效。</td>
 </tr>
 <tr>
-<td><a href="05-transforms.html">3.6 坐标变换与开环验算</a></td>
-<td>保持电压开环，沿 Clarke、Park 核对波形。</td>
+<td><a href="05-transforms.html">3.6 电零点、坐标变换与开环波形验算</a></td>
+<td>标定电角零位，用开环反馈回放 Clarke 和 Park。</td>
 </tr>
 <tr>
-<td><a href="06-current-pi.html">3.7 PI 电流闭环</a></td>
-<td>跟一拍离散 PI，从电流误差走到限幅与占空比。</td>
+<td><a href="06-current-pi.html">3.7 离散 PI 电流闭环与初步调试</a></td>
+<td>对照误差、积分、限幅和小阶跃响应。</td>
 </tr>
 <tr>
 <td><a href="06a-software-architecture.html">3.8 从一拍控制理解软件分层</a></td>

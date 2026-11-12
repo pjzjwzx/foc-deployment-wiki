@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
-<title>3.9 速度估计与速度闭环 · FOC 部署 Wiki</title>
+<meta name="description" content="FOC 工程教程与六章目录，含 STM32H743 固件走读和实验。">
+<title>3.9 速度环与多速率调度 · FOC 部署 Wiki</title>
 <link rel="stylesheet" href="assets/wiki.css">
 <script src="assets/search-index.js" defer></script>
 <script src="assets/wiki.js" defer></script>
@@ -12,22 +12,29 @@
 <body>
 <a class="skip-link" href="#article">跳到正文</a>
 <header class="masthead"><div class="masthead-inner">
-<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">FOC 工程教程</span>
 </div></header>
 <div class="shell">
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html" aria-current="page">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">基础章节</div><a href="chapter-1.html">第 1 章 · FOC 算法（提纲）</a><a href="chapter-2.html">第 2 章 · Simulink 仿真（预留）</a><div class="nav-heading">第 3 章 · FOC 工程部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 逆 Park、SVPWM 与 PWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html" aria-current="page">3.9 速度环与多速率调度</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">进阶与实践</div><a href="chapter-4.html">第 4 章 · 滤波与估计（提纲）</a><a href="chapter-5.html">第 5 章 · 离散控制（提纲）</a><a href="chapter-6.html">第 6 章 · Debug（待补案例）</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
-<header class="article-header"><span class="eyebrow">第 3 章 · 3.9</span><h1>3.9 速度估计与速度闭环</h1></header>
-<p><a href="06a-software-architecture.html">上一节 3.8 从一拍控制理解软件分层</a> · <a href="08-can-mit.html">下一节 3.10 CAN MIT</a></p>
-<p>Simulink 可以直接取电机模型的机械速度。部署时，速度来自带时间戳的编码器角度。本节从两份角度样本算出速度，再跟到速度 PI 产生的 Iq 参考。模型与固件用同一份角度和时间戳就能做离线对照。</p>
-<p><span id="通用-foc-部署"></span></p>
-<h2 id="通用部署">通用部署</h2>
+<header class="article-header"><span class="eyebrow">第 3 章 · 3.9</span><h1>3.9 速度环与多速率调度</h1></header>
+<p><a href="06a-software-architecture.html">上一节 3.8 固件分层与移植</a> · <a href="08-can-mit.html">下一节 3.10 CAN MIT</a></p>
+<p>速度环从编码器样本估速度，再用速度误差给电流环提供 Iq 目标。不同任务可以各用自己的节拍。</p>
+<h2 id="11-工程问题与通路">1.1 工程问题与通路</h2>
+<p>假设上一份角度是 359°，下一份是 1°。按正方向只转了 2°，所以要先处理跨圈，再除以两次有效采样的时间差。滤波后的速度参与速度 PI，产生受限的 Iq 参考。</p>
+<pre><code class="language-text">编码器新样本 → 展开角度差 ÷ 时间差 → 速度反馈
+速度目标 − 速度反馈 → 较慢的速度 PI → 保持 Iq 参考 → 较快的电流 PI
+</code></pre>
+<p>新角度、外环执行和电流反馈各有自己的时刻。在两次外环更新之间，电流环持续用最近一次 Iq 目标和每拍的新电流。不同测速方法的比较见<a href="chapter-4.html">第四章</a>。</p>
+<h2 id="12-高层代码领读">1.2 高层代码领读</h2>
+<p><span id="通用-foc-部署"></span>
+<span id="通用部署"></span></p>
 <h3 id="由角度样本估计电机轴速度">由角度样本估计电机轴速度</h3>
-<p>先在模型中把理想速度反馈换成角度测量链。单圈计数每满 65536 回到 0，程序须先处理跨圈，再将计数差乘以 <code>2π/65536</code> 转为机械 rad。下面摘自 <code>Rotor_Update</code>，<code>corrected</code> 是当前样本经过方向归一化和可选 LUT 后的计数。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L32">样本处理源码</a></p>
+<p>测速从相邻两份有效角度样本开始。单圈计数每满 65536 回到 0，程序须先处理跨圈，再将计数差乘以 <code>2π/65536</code> 转为机械 rad。下面摘自 <code>Rotor_Update</code>，<code>corrected</code> 是当前样本经过方向归一化和可选 LUT 后的计数。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L32">样本处理源码</a></p>
 <pre><code class="language-c">int32_t delta_count = (int32_t)corrected - (int32_t)rotor-&gt;corrected_angle_u16;
 if (delta_count &gt; 32767) delta_count -= 65536;
 if (delta_count &lt; -32768) delta_count += 65536;
@@ -43,8 +50,8 @@ float tau = 1.0f / (FOC_TWO_PI * FOC_SPEED_FILTER_CUTOFF_HZ);
 float alpha = dt / (tau + dt);
 rotor-&gt;speed_rad_s += alpha * (raw_speed - rotor-&gt;speed_rad_s);
 </code></pre>
-<p><code>elapsed_us</code> 以微秒计，乘百万分之一得到秒。<code>tau</code> 是一阶低通的时间常数，截止频率为 100 Hz，本例 <code>alpha≈0.136</code>。若上一帧滤波速度为 0，这一帧更新到约 0.625 rad/s。模型里的 Unit Delay 对应 <code>rotor-&gt;speed_rad_s</code> 保存的历史值。重复或逆序时间戳返回 <code>false</code>。若新样本间隔超过 10 ms，速度清零，从新的时刻恢复测速。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L35">时间戳与首帧处理</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/lab_config.h#L18">滤波与超时配置</a></p>
-<p>电流环可能在两份编码器样本之间执行。<code>Rotor_ElectricalAngle</code> 先用 <code>当前拍时间 − 样本时间</code> 得到样本年龄，随后用滤波速度乘年龄并加到最后一份机械角，最后减机械零位、乘极对数并折回一电圈。年龄超过 10 ms 时函数返回 <code>NAN</code>，应用的编码器健康检查会在运行态触发关断。把模型中的速度反馈和电流环使用的外推角分开画，前者在有效新样本到来时更新，后者可每个电流拍重新计算。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L71">电角外推源码</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L382">编码器健康检查</a></p>
+<p><code>elapsed_us</code> 以微秒计，乘百万分之一得到秒。<code>tau</code> 是一阶低通的时间常数，截止频率为 100 Hz，本例 <code>alpha≈0.136</code>。若上一帧滤波速度为 0，这一帧更新到约 0.625 rad/s。<code>rotor-&gt;speed_rad_s</code> 保留上一份滤波速度，供下次更新使用。重复或逆序时间戳返回 <code>false</code>。若新样本间隔超过 10 ms，速度清零，从新的时刻恢复测速。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L35">时间戳与首帧处理</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/lab_config.h#L18">滤波与超时配置</a></p>
+<p>电流环可能在两份编码器样本之间执行。<code>Rotor_ElectricalAngle</code> 先用 <code>当前拍时间 − 样本时间</code> 得到样本年龄，随后用滤波速度乘年龄并加到最后一份机械角，最后减机械零位、乘极对数并折回一电圈。年龄超过 10 ms 时函数返回 <code>NAN</code>，应用的编码器健康检查会在运行态触发关断。速度反馈在有效新样本到来时更新，外推电角可以每个电流拍重新计算。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L71">电角外推源码</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L382">编码器健康检查</a></p>
 <h3 id="速度-pi-更新-iq电流-pi-每拍执行">速度 PI 更新 Iq，电流 PI 每拍执行</h3>
 <p>速度参考与反馈均用<strong>电机轴 rad/s</strong>。本例速度环 200 Hz，每 5 ms 更新一次 Iq，电流环则每 50 μs 使用最近的 Iq 参考。模型里可用不同速率的离散子系统实现这段关系，较慢一侧的输出在两次更新之间保持。</p>
 <p><strong>源码摘录。</strong> <code>Foc_SpeedStep</code> 已检查有限值，并把速度参考和 Iq 上限约束到电机配置。下面是计算和写回部分。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L167">速度 PI 源码</a></p>
@@ -60,8 +67,9 @@ foc-&gt;id_ref_A = 0.0f;
 </code></pre>
 <p><code>next</code> 是候选积分。未饱和时允许写回，饱和时只允许误差推动输出回到限幅区的方向。最终用实际保留的积分计算 Iq，再限幅。若误差为 2 rad/s、积分初值为 0、限流为 0.5 A，用本例 Kp=0.1、Ki=0.1 及 5 ms 步长，首个未饱和外环拍得到 0.201 A。外环返回 <code>false</code> 时，应用短路跳过该拍的 <code>Foc_CurrentStep</code>，随后按采样故障处理。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/motor_config.h#L53">速度环参数</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L525">外环调用与 PWM 提交</a></p>
 <p><strong>离线对照。</strong> 在同一时间轴记录机械计数、样本时间戳、瞬时速度、滤波速度、速度参考和 Iq 参考。先确认跨圈处的速度符号，再查看 Iq 只在 5 ms 的外环节拍变化。将速度参考阶跃改到足以触发 Iq 限幅，检查积分是否停止向饱和方向增长。板上的速度跟踪还需对照 Iq 反馈，才能区分外环给定和电流环响应。</p>
-<p><span id="stm32-部署示例"></span></p>
-<h2 id="stm32-实现">STM32 实现</h2>
+<h2 id="21-bsp-与-cubemx-领读">2.1 BSP 与 CubeMX 领读</h2>
+<p><span id="stm32-部署示例"></span>
+<span id="stm32-实现"></span></p>
 <h3 id="在-h743-的同一套中断里安排不同节拍">在 H743 的同一套中断里安排不同节拍</h3>
 <p>速度环沿用 <a href="04-sampling-zero.html">3.5 的 TIM1 与 ADC 注入触发配置</a>。三相样本就绪后进入 <code>MotorApp_CurrentIsr</code>，每次把 <code>divider</code> 加一。SPI1 采样沿用 <a href="03-sensors.html">3.4 的编码器配置</a>，BSP 把新样本和时间戳提供给应用。CubeMX 配置触发和中断，速度环分频在应用中用取模实现。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L462">控制 ISR</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/encoder.c#L383">SPI 样本读取</a></p>
 <div class="table-wrap"><table>
@@ -131,6 +139,7 @@ foc-&gt;id_ref_A = 0.0f;
 </tbody>
 </table></div>
 <p>编码器请求与有效样本更新是两个事件。只有 <code>sample.fresh</code>、<code>sample.valid</code> 且 <code>Rotor_Update</code> 成功才更新速度历史。板端 UART4 的 LAB6 六通道依次为电机轴速度参考、估计速度、Iq 参考、Iq 反馈、输出轴位置、反馈电角。UART 快照适合看趋势，不能据此逐拍测量 50 μs 的控制时序。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L382">请求与取样</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L451">UART 通道</a></p>
+<h2 id="22-lab-实机操作与验收">2.2 LAB 实机操作与验收</h2>
 <h3 id="核对速度命令与停机">核对速度命令与停机</h3>
 <p>在配套工程根目录执行下列离线命令，查看主机将速度和运行限流打包成的 <code>0x122</code> 帧。该例数据为 <code>80 40 28 00 00 00 00 00</code>，板端解码约为 0.829 rad/s 和 0.488 A。量化后的参考才是应与实测反馈对照的值。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.c#L45">速度命令解码</a></p>
 <pre><code class="language-powershell">python tools/can_demo.py speed --speed 1 --iq-limit 0.5 --duration 2
@@ -142,13 +151,17 @@ foc-&gt;id_ref_A = 0.0f;
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>
-<li><a href="#通用部署">通用部署</a><ul>
+<li><a href="#11-工程问题与通路">1.1 工程问题与通路</a></li>
+<li><a href="#12-高层代码领读">1.2 高层代码领读</a><ul>
 <li><a href="#由角度样本估计电机轴速度">由角度样本估计电机轴速度</a></li>
 <li><a href="#速度-pi-更新-iq电流-pi-每拍执行">速度 PI 更新 Iq，电流 PI 每拍执行</a></li>
 </ul>
 </li>
-<li><a href="#stm32-实现">STM32 实现</a><ul>
+<li><a href="#21-bsp-与-cubemx-领读">2.1 BSP 与 CubeMX 领读</a><ul>
 <li><a href="#在-h743-的同一套中断里安排不同节拍">在 H743 的同一套中断里安排不同节拍</a></li>
+</ul>
+</li>
+<li><a href="#22-lab-实机操作与验收">2.2 LAB 实机操作与验收</a><ul>
 <li><a href="#核对速度命令与停机">核对速度命令与停机</a></li>
 </ul>
 </li>

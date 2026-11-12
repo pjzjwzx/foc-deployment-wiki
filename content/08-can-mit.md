@@ -1,20 +1,28 @@
 # 3.10 CAN MIT
 
-[上一节 3.9 速度估计与速度闭环](07-speed.md) · [下一节 3.11 开环 LUT 标定](09-lut.md)
+[上一节 3.9 速度环与多速率调度](07-speed.md) · [下一节 3.11 开环 LUT 标定](09-lut.md)
 
-在 Simulink 中，MIT 模式有五个输入。部署时，这五个量由主机经 CAN 更新，控制器还要判断命令是否有效、模式是否允许和通信是否超时。本节从一帧可离线生成的报文出发，读到输出轴力矩、电机侧 Iq 和测量回包。
+MIT 指令从 CAN 字节进入应用，最后形成电机侧电流目标。沿一帧目标跟到力矩计算、回包和停机。
+
+## 1.1 工程问题与通路
+
+主机发送五个量。位置差乘刚度，速度差乘阻尼，两项加上前馈力矩，得到输出轴力矩请求。减速比和力矩常数把它换成电机侧 Iq，再经运行限流交给电流环。
+
+~~~text
+CAN 帧 → 位置、速度、刚度、阻尼、前馈力矩
+       → 模式与时效检查 → 输出轴力矩 → 电机侧 Iq 目标 → 电流环
+~~~
+
+回包里的测量可能早于该目标在下一次控制更新中生效。周期命令中断时，应用的看门狗让输出进入关断状态。
+
+## 1.2 高层代码领读
 
 <span id="通用-foc-部署"></span>
-
-## 通用部署
+<span id="通用部署"></span>
 
 ### 从线上的八个字节恢复模型输入
 
-在配套工程根目录执行下面的命令。默认只打印发送计划。它先请求 Disabled，再请求 MIT，周期目标帧为 `0x013  82 8E 80 60 10 05 18 16`，退出时安排发送 Disabled。 [主机命令](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L246)
-
-```powershell
-python tools/can_demo.py mit --position 1 --velocity 0.5 --kp 2 --kd 0.1 --torque 0.2 --duration 2
-```
+本例的周期目标帧为 `0x013  82 8E 80 60 10 05 18 16`。主机的发送计划依次请求 Disabled、请求 MIT、周期发送目标并在退出时请求 Disabled。 [主机命令](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L246)
 
 表中的字节编号从 0 开始。低半字节是低四位，高半字节是高四位。同一字节可以各给两个不同的字段四位。每个无符号整数用 `low + raw × (high − low)/(2^bits − 1)` 换回物理量。编码向零截断，所以模型输入和解码后的量存在量化差异。 [量化实现](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.c#L15) · [MIT 解码](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.c#L66)
 
@@ -81,13 +89,14 @@ foc->id_ref_A = 0.0f;
 
 **离线核对。** 用上面一帧和同一组输出轴测量重放 MIT 计算。将算例中的有效限流设为 0.4 A，预期未限幅请求仍约为 0.510 A，交给电流环的参考为 0.4 A，`torque_output_Nm` 约为 0.477 N·m。再用相同目标分别检查 MIT 和 Disabled 的命令分支，标出哪一支会发布目标并续期。
 
-<span id="stm32-部署示例"></span>
+## 2.1 BSP 与 CubeMX 领读
 
-## STM32 实现
+<span id="stm32-部署示例"></span>
+<span id="stm32-实现"></span>
 
 ### 由 CubeMX 配置 H743 的 Classic CAN
 
-在配套 `.ioc` 打开 **Pinout & Configuration → Connectivity → FDCAN1**，用 **Parameter Settings** 核对帧格式、位时序、滤波器数量和消息 RAM，再在 **NVIC Settings** 复核中断。内核时钟从 **Clock Configuration** 核对。 [CubeMX 配置](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/FOC_Arclab_H743_V3.ioc#L150) · [生成的 FDCAN 初始化](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/fdcan.c#L30)
+示例 `.ioc` 的 **Pinout & Configuration → Connectivity → FDCAN1** 包含下表的参数。内核时钟来自 **Clock Configuration**，中断优先级对应 **NVIC Settings**。 [CubeMX 配置](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/FOC_Arclab_H743_V3.ioc#L150) · [生成的 FDCAN 初始化](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/fdcan.c#L30)
 
 | 项目 | 本工程设置 | 生成代码 |
 |---|---|---|
@@ -103,11 +112,23 @@ foc->id_ref_A = 0.0f;
 
 `Board_Init` 在生成配置之后装入掩码为 0 的标准 ID 滤波项，匹配的标准数据帧进 FIFO0，扩展帧和远程帧由全局设置拒绝。`FDCAN1_IT0_IRQHandler` 进入 HAL，再到 `HAL_FDCAN_RxFifo0Callback`。回调核对标准 ID、数据帧、8 字节长度和队列空间，先复制数据和接收时间，再更新写索引。后台每轮最多取八帧，调用协议解码和应用的接受函数。BSP 发送同样用标准 11 位 ID、Classic CAN、8 字节和 BRS Off。 [BSP 配置](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L161) · [中断入口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/stm32h7xx_it.c#L276) · [队列收发](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L243) · [后台解码](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L611)
 
+
+
 ### 核对通信超时与停机
 
 本工程看门狗在运行态检查最近一次有效命令是否超过 100 ms。断开命令流时，ISR 直接关桥并进入 Fault，后台再尝试报告。公开快照的离线 LAB5 Current 测试还复现了时间戳误判。三相 ADC 回调传入的是从 TIM1 计数回推的触发参考时刻。若触发参考为 103550 μs，随后在 103552 μs 接受有效命令，再执行该次 ADC 回调，`(uint32_t)(now - last_command_us)` 会得到 4294967294 μs，导致 `state=8`、`faults=0x08`、驱动关闭。该判断被运行模式共用，MIT、速度和标定在板上是否遇到同一窗口仍待确认。排查时分别记录触发参考、接收时间和回调实际执行时间。 [回推触发时间](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L298) · [看门狗](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L494) · [验证记录](reference.md#验证记录)
 
-**实物选做。** 使用 `LAB_STAGE=LAB_CAN_MIT`。按 [3.3 的启停和接线](02-open-loop.md) 先核对控制侧供电、收发器、终端电阻、限流、空载与独立关断手段。PD0、PD1 连接板上收发器的逻辑侧，适配器接总线侧 CANH、CANL。确认 Disabled、编码器健康、电零位有效，再从零刚度、小阻尼做短时检查。下面以 SLCAN 的 COM5 为例，实际端口以适配器为准。
+## 2.2 LAB 实机操作与验收
+
+### LAB7 命令、回包与失联停机
+
+在配套工程根目录执行下面的命令。默认只打印发送计划。它先请求 Disabled，再请求 MIT，周期目标帧为 `0x013  82 8E 80 60 10 05 18 16`，退出时安排发送 Disabled。 [主机命令](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L246)
+
+```powershell
+python tools/can_demo.py mit --position 1 --velocity 0.5 --kp 2 --kd 0.1 --torque 0.2 --duration 2
+```
+
+**实物选做。** 使用 LAB7（`LAB_STAGE=LAB_CAN_MIT`）。按 [3.3 的启停和接线](02-open-loop.md) 先核对控制侧供电、收发器、终端电阻、限流、空载与独立关断手段。PD0、PD1 连接板上收发器的逻辑侧，适配器接总线侧 CANH、CANL。确认 Disabled、编码器健康、电零位有效，再从零刚度、小阻尼做短时检查。下面以 SLCAN 的 COM5 为例，实际端口以适配器为准。
 
 ```powershell
 python tools/can_demo.py --send --interface slcan --channel COM5 stop

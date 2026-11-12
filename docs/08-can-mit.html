@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
+<meta name="description" content="FOC 工程教程与六章目录，含 STM32H743 固件走读和实验。">
 <title>3.10 CAN MIT · FOC 部署 Wiki</title>
 <link rel="stylesheet" href="assets/wiki.css">
 <script src="assets/search-index.js" defer></script>
@@ -12,24 +12,29 @@
 <body>
 <a class="skip-link" href="#article">跳到正文</a>
 <header class="masthead"><div class="masthead-inner">
-<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">FOC 工程教程</span>
 </div></header>
 <div class="shell">
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html" aria-current="page">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">基础章节</div><a href="chapter-1.html">第 1 章 · FOC 算法（提纲）</a><a href="chapter-2.html">第 2 章 · Simulink 仿真（预留）</a><div class="nav-heading">第 3 章 · FOC 工程部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 逆 Park、SVPWM 与 PWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度环与多速率调度</a><a href="08-can-mit.html" aria-current="page">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">进阶与实践</div><a href="chapter-4.html">第 4 章 · 滤波与估计（提纲）</a><a href="chapter-5.html">第 5 章 · 离散控制（提纲）</a><a href="chapter-6.html">第 6 章 · Debug（待补案例）</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
 <header class="article-header"><span class="eyebrow">第 3 章 · 3.10</span><h1>3.10 CAN MIT</h1></header>
-<p><a href="07-speed.html">上一节 3.9 速度估计与速度闭环</a> · <a href="09-lut.html">下一节 3.11 开环 LUT 标定</a></p>
-<p>在 Simulink 中，MIT 模式有五个输入。部署时，这五个量由主机经 CAN 更新，控制器还要判断命令是否有效、模式是否允许和通信是否超时。本节从一帧可离线生成的报文出发，读到输出轴力矩、电机侧 Iq 和测量回包。</p>
-<p><span id="通用-foc-部署"></span></p>
-<h2 id="通用部署">通用部署</h2>
-<h3 id="从线上的八个字节恢复模型输入">从线上的八个字节恢复模型输入</h3>
-<p>在配套工程根目录执行下面的命令。默认只打印发送计划。它先请求 Disabled，再请求 MIT，周期目标帧为 <code>0x013  82 8E 80 60 10 05 18 16</code>，退出时安排发送 Disabled。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L246">主机命令</a></p>
-<pre><code class="language-powershell">python tools/can_demo.py mit --position 1 --velocity 0.5 --kp 2 --kd 0.1 --torque 0.2 --duration 2
+<p><a href="07-speed.html">上一节 3.9 速度环与多速率调度</a> · <a href="09-lut.html">下一节 3.11 开环 LUT 标定</a></p>
+<p>MIT 指令从 CAN 字节进入应用，最后形成电机侧电流目标。沿一帧目标跟到力矩计算、回包和停机。</p>
+<h2 id="11-工程问题与通路">1.1 工程问题与通路</h2>
+<p>主机发送五个量。位置差乘刚度，速度差乘阻尼，两项加上前馈力矩，得到输出轴力矩请求。减速比和力矩常数把它换成电机侧 Iq，再经运行限流交给电流环。</p>
+<pre><code class="language-text">CAN 帧 → 位置、速度、刚度、阻尼、前馈力矩
+       → 模式与时效检查 → 输出轴力矩 → 电机侧 Iq 目标 → 电流环
 </code></pre>
+<p>回包里的测量可能早于该目标在下一次控制更新中生效。周期命令中断时，应用的看门狗让输出进入关断状态。</p>
+<h2 id="12-高层代码领读">1.2 高层代码领读</h2>
+<p><span id="通用-foc-部署"></span>
+<span id="通用部署"></span></p>
+<h3 id="从线上的八个字节恢复模型输入">从线上的八个字节恢复模型输入</h3>
+<p>本例的周期目标帧为 <code>0x013  82 8E 80 60 10 05 18 16</code>。主机的发送计划依次请求 Disabled、请求 MIT、周期发送目标并在退出时请求 Disabled。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L246">主机命令</a></p>
 <p>表中的字节编号从 0 开始。低半字节是低四位，高半字节是高四位。同一字节可以各给两个不同的字段四位。每个无符号整数用 <code>low + raw × (high − low)/(2^bits − 1)</code> 换回物理量。编码向零截断，所以模型输入和解码后的量存在量化差异。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.c#L15">量化实现</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.c#L66">MIT 解码</a></p>
 <div class="table-wrap"><table>
 <thead>
@@ -131,10 +136,11 @@ foc-&gt;id_ref_A = 0.0f;
 </table></div>
 <p><code>0x003</code> 与 <code>0x182</code> 都用八字节测量格式。字节 0 是 <code>0x13</code>，字节 1～2 放位置，字节 3～5 拼两个 12 位的速度与电流，字节 6、7 放状态和故障低八位。<code>0x003</code> 在接受目标时抓取已有测量，可能早于目标在下一个 5 ms 节拍生效。离线对照时沿时间轴分别记下解码目标、用于计算的测量、力矩请求、限幅后 Iq 和回包。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.c#L126">测量编码</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L363">回复生成与发送</a></p>
 <p><strong>离线核对。</strong> 用上面一帧和同一组输出轴测量重放 MIT 计算。将算例中的有效限流设为 0.4 A，预期未限幅请求仍约为 0.510 A，交给电流环的参考为 0.4 A，<code>torque_output_Nm</code> 约为 0.477 N·m。再用相同目标分别检查 MIT 和 Disabled 的命令分支，标出哪一支会发布目标并续期。</p>
-<p><span id="stm32-部署示例"></span></p>
-<h2 id="stm32-实现">STM32 实现</h2>
+<h2 id="21-bsp-与-cubemx-领读">2.1 BSP 与 CubeMX 领读</h2>
+<p><span id="stm32-部署示例"></span>
+<span id="stm32-实现"></span></p>
 <h3 id="由-cubemx-配置-h743-的-classic-can">由 CubeMX 配置 H743 的 Classic CAN</h3>
-<p>在配套 <code>.ioc</code> 打开 <strong>Pinout &amp; Configuration → Connectivity → FDCAN1</strong>，用 <strong>Parameter Settings</strong> 核对帧格式、位时序、滤波器数量和消息 RAM，再在 <strong>NVIC Settings</strong> 复核中断。内核时钟从 <strong>Clock Configuration</strong> 核对。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/FOC_Arclab_H743_V3.ioc#L150">CubeMX 配置</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/fdcan.c#L30">生成的 FDCAN 初始化</a></p>
+<p>示例 <code>.ioc</code> 的 <strong>Pinout &amp; Configuration → Connectivity → FDCAN1</strong> 包含下表的参数。内核时钟来自 <strong>Clock Configuration</strong>，中断优先级对应 <strong>NVIC Settings</strong>。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/FOC_Arclab_H743_V3.ioc#L150">CubeMX 配置</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/fdcan.c#L30">生成的 FDCAN 初始化</a></p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -185,25 +191,35 @@ foc-&gt;id_ref_A = 0.0f;
 <p><code>Board_Init</code> 在生成配置之后装入掩码为 0 的标准 ID 滤波项，匹配的标准数据帧进 FIFO0，扩展帧和远程帧由全局设置拒绝。<code>FDCAN1_IT0_IRQHandler</code> 进入 HAL，再到 <code>HAL_FDCAN_RxFifo0Callback</code>。回调核对标准 ID、数据帧、8 字节长度和队列空间，先复制数据和接收时间，再更新写索引。后台每轮最多取八帧，调用协议解码和应用的接受函数。BSP 发送同样用标准 11 位 ID、Classic CAN、8 字节和 BRS Off。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L161">BSP 配置</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/stm32h7xx_it.c#L276">中断入口</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L243">队列收发</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L611">后台解码</a></p>
 <h3 id="核对通信超时与停机">核对通信超时与停机</h3>
 <p>本工程看门狗在运行态检查最近一次有效命令是否超过 100 ms。断开命令流时，ISR 直接关桥并进入 Fault，后台再尝试报告。公开快照的离线 LAB5 Current 测试还复现了时间戳误判。三相 ADC 回调传入的是从 TIM1 计数回推的触发参考时刻。若触发参考为 103550 μs，随后在 103552 μs 接受有效命令，再执行该次 ADC 回调，<code>(uint32_t)(now - last_command_us)</code> 会得到 4294967294 μs，导致 <code>state=8</code>、<code>faults=0x08</code>、驱动关闭。该判断被运行模式共用，MIT、速度和标定在板上是否遇到同一窗口仍待确认。排查时分别记录触发参考、接收时间和回调实际执行时间。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L298">回推触发时间</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L494">看门狗</a> · <a href="reference.html#验证记录">验证记录</a></p>
-<p><strong>实物选做。</strong> 使用 <code>LAB_STAGE=LAB_CAN_MIT</code>。按 <a href="02-open-loop.html">3.3 的启停和接线</a> 先核对控制侧供电、收发器、终端电阻、限流、空载与独立关断手段。PD0、PD1 连接板上收发器的逻辑侧，适配器接总线侧 CANH、CANL。确认 Disabled、编码器健康、电零位有效，再从零刚度、小阻尼做短时检查。下面以 SLCAN 的 COM5 为例，实际端口以适配器为准。</p>
+<h2 id="22-lab-实机操作与验收">2.2 LAB 实机操作与验收</h2>
+<h3 id="lab7-命令回包与失联停机">LAB7 命令、回包与失联停机</h3>
+<p>在配套工程根目录执行下面的命令。默认只打印发送计划。它先请求 Disabled，再请求 MIT，周期目标帧为 <code>0x013  82 8E 80 60 10 05 18 16</code>，退出时安排发送 Disabled。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L246">主机命令</a></p>
+<pre><code class="language-powershell">python tools/can_demo.py mit --position 1 --velocity 0.5 --kp 2 --kd 0.1 --torque 0.2 --duration 2
+</code></pre>
+<p><strong>实物选做。</strong> 使用 LAB7（<code>LAB_STAGE=LAB_CAN_MIT</code>）。按 <a href="02-open-loop.html">3.3 的启停和接线</a> 先核对控制侧供电、收发器、终端电阻、限流、空载与独立关断手段。PD0、PD1 连接板上收发器的逻辑侧，适配器接总线侧 CANH、CANL。确认 Disabled、编码器健康、电零位有效，再从零刚度、小阻尼做短时检查。下面以 SLCAN 的 COM5 为例，实际端口以适配器为准。</p>
 <pre><code class="language-powershell">python tools/can_demo.py --send --interface slcan --channel COM5 stop
 python tools/can_demo.py --send --interface slcan --channel COM5 cal-status
 python tools/can_demo.py --send --interface slcan --channel COM5 mit --position 0 --velocity 0 --kp 0 --kd 0.05 --torque 0 --duration 2
 </code></pre>
 <p>记录进入状态、<code>0x003</code> 测量和退出状态。正常结束时主机会尝试发送 Disabled。若要单独验收失联保护，在受控条件下中断周期指令流，记录最后一份有效命令到驱动关断的间隔，并确认输出已关断。总线仍能通信时，再读取 <code>0x180</code> Fault，核对通信故障位。收到故障或发现运动异常时先确保功率已关断。排除故障原因后用 <code>clear</code> 请求回到 Disabled，再检查能否重新使能。实物结果待记录。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L116">状态切换与故障清除</a></p>
-<div class="pager"><a href="07-speed.html"><small>上一页</small>3.9 速度估计与速度闭环</a><a href="09-lut.html"><small>下一页</small>3.11 开环 LUT 标定</a></div>
+<div class="pager"><a href="07-speed.html"><small>上一页</small>3.9 速度环与多速率调度</a><a href="09-lut.html"><small>下一页</small>3.11 开环 LUT 标定</a></div>
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>
-<li><a href="#通用部署">通用部署</a><ul>
+<li><a href="#11-工程问题与通路">1.1 工程问题与通路</a></li>
+<li><a href="#12-高层代码领读">1.2 高层代码领读</a><ul>
 <li><a href="#从线上的八个字节恢复模型输入">从线上的八个字节恢复模型输入</a></li>
 <li><a href="#经过应用检查后才更新电流参考">经过应用检查后，才更新电流参考</a></li>
 <li><a href="#把回包和本次计算区分开">把回包和本次计算区分开</a></li>
 </ul>
 </li>
-<li><a href="#stm32-实现">STM32 实现</a><ul>
+<li><a href="#21-bsp-与-cubemx-领读">2.1 BSP 与 CubeMX 领读</a><ul>
 <li><a href="#由-cubemx-配置-h743-的-classic-can">由 CubeMX 配置 H743 的 Classic CAN</a></li>
 <li><a href="#核对通信超时与停机">核对通信超时与停机</a></li>
+</ul>
+</li>
+<li><a href="#22-lab-实机操作与验收">2.2 LAB 实机操作与验收</a><ul>
+<li><a href="#lab7-命令回包与失联停机">LAB7 命令、回包与失联停机</a></li>
 </ul>
 </li>
 </ul>

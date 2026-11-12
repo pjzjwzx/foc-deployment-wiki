@@ -1,16 +1,37 @@
-# 3.3 第一次实际部署电压开环
+# 3.3 第一次电压开环
 
-[上一节 3.2 PWM 与 SVPWM](01-pwm-svpwm.md) · [下一节 3.4 电流与角度传感器](03-sensors.md)
+[上一节 3.2 逆 Park、SVPWM 与 PWM 输出](01-pwm-svpwm.md) · [下一节 3.4 电流与角度传感器](03-sensors.md)
 
-这一节把 Simulink 里的电压开环接到实物。你会沿同一条通路找到模型信号、C 变量和板上输出，然后构建 LAB2，下载到板上，用小幅 Vq 给定完成一次短时开环和停机。手边没有板时，可以沿现有模型波形读代码，并对照本页的离线输出。实机下载与试转待验证。
+第一次驱动电机，先把旋转电压、启桥检查和停机连成一条可追踪的通路。示例使用 LAB2，实机试转待验证。
+
+## 1.1 工程问题与通路
+
+开环时，应用自己推进给定电角。每拍按 `ωe × Ts` 增加角度，固定的 dq 电压请求随角度旋转，逆 Park 和 SVPWM 将它交给桥臂。编码器仍参与健康检查，驱动电压使用的是给定角。
+
+**执行示意**。阶段仍是 LAB2，箭头只表示运行状态的改变。
+
+~~~text
+上电 → 采集电流零偏 → Disabled（2）
+                          │
+                   开环请求与检查通过
+                          ↓
+                       Open（3） ← 持续接受电角速度和 Vq
+                          │
+                          ├── 收到停机请求 → Disabled（2）
+                          └── 运行故障 → Fault（8）
+                                         └── 排除原因并明确清故障 → Disabled（2）
+~~~
+
+运行请求、驱动就绪和目标更新各有自己的时机。正常停机返回 Disabled，运行故障走关断路径并进入 Fault。
+
+## 1.2 高层代码领读
 
 <span id="通用-foc-部署"></span>
-
-## 通用部署
+<span id="通用部署"></span>
 
 ### 将模型里的给定电角接到 SVPWM
 
-在模型里，从给定电角速度出发，每个控制周期将角度加上 `ωe × dt`，再把角度折回一圈。给定电角与 `Vd/Vq` 进入逆 Park，所得 `vα/vβ` 接到 SVPWM。打开固件的 `APP_OPEN` 分支，先按这条信号线往下读。 [开环分支](source.md#app-motor-app-c-l519)
+固件的 `APP_OPEN` 分支将电角速度积分成给定电角，再把给定角与电压请求交给调制。 [开环分支](source.md#app-motor-app-c-l519)
 
 **源码摘录**。这一段位于 `MotorApp_CurrentIsr` 的运行分支内，母线检查已通过，前面的模式选择和后面的 PWM 提交略去。
 
@@ -27,31 +48,17 @@ else if (state == APP_OPEN)
 
 第二句把新角交给 3.2 读过的 `Foc_VoltageStep`。本例 `Vd=0`，`Vq` 取最新目标。函数仍按原来的顺序限幅，用逆 Park 得到 `vα/vβ`，再用 SVPWM 算三相 duty。结果写入 `foc`，成功或失败通过返回值交给本拍的 `ok`。回到应用后，继续走 PWM 提交判断。 [电压到 duty](source.md#control-foc-c-l108) · [返回后的提交](source.md#app-motor-app-c-l548)
 
-| 模型里的信号 | 在固件中找哪里 | 本章用什么核对 |
+| 信号 | 固件变量 | 单位与用途 |
 |---|---|---|
-| 给定电角速度 `ωe`，rad/s | `reference.electrical_speed_rad_s` | 对照命令的 `--electrical-speed` 与给定角的斜率 |
-| 给定电角 `θe`，rad | `open_angle` | 观察 `MotorApp_Diagnostics.open_angle_rad` 或 LAB2 遥测 ch5，核对方向和一圈折回 |
-| dq 给定电压，V | `0` 和 `reference.vq_V` | 对照 `--vq` 与电压限幅前的目标 |
-| 用于归一化的母线电压，V | `bus`，来自 `Board_BusVoltage()` | 记录 `MotorApp_Diagnostics.bus_voltage_V`，与板上允许的测量结果对照 |
-| 固定坐标电压 `vα/vβ`、三相 duty | `foc.alpha_voltage_V`、`foc.beta_voltage_V`、`foc.duty[0..2]` | 在模型里跟同一段角度轨迹，核对相序和 duty 变化，在板上看对应的 MCU PWM 引脚 |
+| 给定电角速度 | `reference.electrical_speed_rad_s` | 电 rad/s，决定每拍角度增量 |
+| 给定电角 | `open_angle` | rad，折回一电圈后用于逆 Park |
+| dq 给定电压 | `0` 和 `reference.vq_V` | V，送进限幅和调制 |
+| 母线电压 | `bus`，由板级接口交付 | V，用于电压限幅和 duty 归一化 |
+| 输出占空比 | `foc.duty[0..2]` | 三相 0～1 的比例，交给板级提交接口 |
 
 ### 从停机到允许开环
 
 `LAB_STAGE` 是构建时的能力选择。设为 LAB2 后，固件上电先采集电流零偏，随后停在 `APP_DISABLED`（2）。示例通过 CAN 请求 `APP_OPEN`（3），应用接受后才持续接收电角速度和 Vq。换平台时，本地按键或其他总线也可以提供运行请求和给定。应用先处理运行状态请求，再接收与当前状态匹配的目标。 [3.10 CAN MIT](08-can-mit.md)
-
-**执行示意**。阶段仍是 LAB2，箭头只表示运行状态的改变。
-
-~~~text
-上电 → 采集电流零偏 → Disabled（2）
-                          │
-                   开环请求与检查通过
-                          ↓
-                       Open（3） ← 持续接受电角速度和 Vq
-                          │
-                          ├── 收到停机请求 → Disabled（2）
-                          └── 运行故障 → Fault（8）
-                                         └── 排除原因并明确清故障 → Disabled（2）
-~~~
 
 `request_state` 先检查阶段是否允许目标状态、电流零偏是否采完，并要求首次开环从 Disabled 出发且无故障。开环目标可在功率输出就绪后更新。应用收到停机请求或检测到故障时，要让输出立即进入安全状态，并清掉本次运行的目标。换板时需要给应用提供等价的就绪检查和关断接口。 [状态入口](source.md#app-motor-app-c-l116) · [零偏完成时进入 Disabled](source.md#app-motor-app-c-l467)
 
@@ -79,15 +86,16 @@ if (!Board_EnableDriver())
 
 电脑再发目标时，`MotorApp_AcceptCommand` 只接受新鲜、状态匹配且无故障的命令。应用一次性写入 `reference`，按配置限制电角速度与 Vq，并更新时间。控制程序每拍读取完整的最新目标。本例电脑脚本以 50 Hz 更新给定，板上每 50 μs 算一次。 [目标接收与限制](source.md#app-motor-app-c-l306)
 
-LAB1 和 LAB2 用的是同一套逆 Park 与 SVPWM。LAB1 每秒推进一圈电角，用固定 `Vd=0 V`、`Vq=1 V` 和名义母线 24 V 算 duty，结果交给观察接口。LAB2 的 `APP_OPEN` 使用可调电角速度、Vq 和实际采样的母线，结果交给运行接口。回到自己的模型，先对照这两条路径分别使用了哪些输入，再跟读它们的硬件落点。 [LAB1 与 Open 分支](source.md#app-motor-app-c-l498)
+LAB1 和 LAB2 用的是同一套逆 Park 与 SVPWM。LAB1 每秒推进一圈电角，用固定 `Vd=0 V`、`Vq=1 V` 和名义母线 24 V 算 duty，结果交给观察接口。LAB2 的 `APP_OPEN` 使用可调电角速度、Vq 和实际采样的母线，结果交给运行接口。[LAB1 与 Open 分支](source.md#app-motor-app-c-l498)
+
+## 2.1 BSP 与 CubeMX 领读
 
 <span id="stm32-部署示例"></span>
-
-## STM32 实现
+<span id="stm32-实现"></span>
 
 ### 追踪示例板的启桥检查
 
-找到三个板级接口，读清楚应用什么时候可以送出功率输出。
+板级把驱动就绪、故障输入和关断提供为三个接口。PD4 和 PD5 的配置来自 GPIO 初始化，TIM1 输出行为见 3.2。 [示例配置](reference.md#示例配置)
 
 | 接口 | 在 H743 示例板上做什么 |
 |---|---|
@@ -105,6 +113,8 @@ if (running() && (!ok || !Board_ApplyDutyIsr(foc.duty)))
 ```
 
 状态仍在运行且 `ok` 为真时，`Board_ApplyDutyIsr` 检查占空比、驱动是否启用、故障输入和定时器提交窗口。`Board_DriverFault` 读板级故障输入。板级返回成功，应用接着记录诊断。计算失败时，`!ok` 已经为真，右边的提交函数不会调用。提交失败也走同一个故障处理，经 `Board_StopIsr` 关闭 PWM 总输出和驱动使能。母线异常、运行中编码器失效、过流以及运动命令超时也会关桥。该工程的通信超时阈值为 100 ms。 [提交检查](source.md#bsp-board-c-l118) · [关断入口](source.md#bsp-board-c-l69) · [本拍的保护判断](source.md#app-motor-app-c-l479)
+
+## 2.2 LAB 实机操作与验收
 
 ### 构建 LAB2 并找到本次 ELF
 

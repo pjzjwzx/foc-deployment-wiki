@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
+<meta name="description" content="FOC 工程教程与六章目录，含 STM32H743 固件走读和实验。">
 <title>配置与验证参考 · FOC 部署 Wiki</title>
 <link rel="stylesheet" href="assets/wiki.css">
 <script src="assets/search-index.js" defer></script>
@@ -12,13 +12,13 @@
 <body>
 <a class="skip-link" href="#article">跳到正文</a>
 <header class="masthead"><div class="masthead-inner">
-<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">FOC 工程教程</span>
 </div></header>
 <div class="shell">
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html" aria-current="page">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">基础章节</div><a href="chapter-1.html">第 1 章 · FOC 算法（提纲）</a><a href="chapter-2.html">第 2 章 · Simulink 仿真（预留）</a><div class="nav-heading">第 3 章 · FOC 工程部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 逆 Park、SVPWM 与 PWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度环与多速率调度</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">进阶与实践</div><a href="chapter-4.html">第 4 章 · 滤波与估计（提纲）</a><a href="chapter-5.html">第 5 章 · 离散控制（提纲）</a><a href="chapter-6.html">第 6 章 · Debug（待补案例）</a><div class="nav-heading">附录</div><a href="reference.html" aria-current="page">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
 <header class="article-header"><span class="eyebrow">附录</span><h1>配置与验证参考</h1></header>
@@ -126,15 +126,15 @@
 </thead>
 <tbody>
 <tr>
-<td><a href="00-project.html">3.1 看懂工程怎样启动</a></td>
+<td><a href="00-project.html">3.1 工程启动</a></td>
 <td>沿 main() 找到初始化、启动失败和后台入口。</td>
 </tr>
 <tr>
-<td><a href="01-pwm-svpwm.html">3.2 从 Simulink 占空比到 STM32 PWM</a></td>
+<td><a href="01-pwm-svpwm.html">3.2 逆 Park、SVPWM 与 PWM 输出</a></td>
 <td>将扇区法与 min/max 调制对齐，再把 duty 交给定时器。</td>
 </tr>
 <tr>
-<td><a href="02-open-loop.html">3.3 第一次实际部署电压开环</a></td>
+<td><a href="02-open-loop.html">3.3 第一次电压开环</a></td>
 <td>沿给定电角、母线与 PWM 提交走完一次启停。</td>
 </tr>
 <tr>
@@ -146,19 +146,19 @@
 <td>沿同一时间轴核对触发、反馈帧、控制计算和 PWM 生效。</td>
 </tr>
 <tr>
-<td><a href="05-transforms.html">3.6 电零点、坐标变换与开环波形验算</a></td>
+<td><a href="05-transforms.html">3.6 电零点与开环波形验算</a></td>
 <td>标定电角零位，用开环反馈回放 Clarke 和 Park。</td>
 </tr>
 <tr>
-<td><a href="06-current-pi.html">3.7 离散 PI 电流闭环与初步调试</a></td>
+<td><a href="06-current-pi.html">3.7 电流闭环与初步调试</a></td>
 <td>对照误差、积分、限幅和小阶跃响应。</td>
 </tr>
 <tr>
-<td><a href="06a-software-architecture.html">3.8 从一拍控制理解软件分层</a></td>
+<td><a href="06a-software-architecture.html">3.8 固件分层与移植</a></td>
 <td>沿命令与过流停机认识各层接口。</td>
 </tr>
 <tr>
-<td><a href="07-speed.html">3.9 速度估计与速度闭环</a></td>
+<td><a href="07-speed.html">3.9 速度环与多速率调度</a></td>
 <td>从两个角度样本估速度，再由速度 PI 产生 Iq 参考。</td>
 </tr>
 <tr>

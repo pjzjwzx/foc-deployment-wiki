@@ -1,16 +1,28 @@
-# 3.9 速度估计与速度闭环
+# 3.9 速度环与多速率调度
 
-[上一节 3.8 从一拍控制理解软件分层](06a-software-architecture.md) · [下一节 3.10 CAN MIT](08-can-mit.md)
+[上一节 3.8 固件分层与移植](06a-software-architecture.md) · [下一节 3.10 CAN MIT](08-can-mit.md)
 
-Simulink 可以直接取电机模型的机械速度。部署时，速度来自带时间戳的编码器角度。本节从两份角度样本算出速度，再跟到速度 PI 产生的 Iq 参考。模型与固件用同一份角度和时间戳就能做离线对照。
+速度环从编码器样本估速度，再用速度误差给电流环提供 Iq 目标。不同任务可以各用自己的节拍。
+
+## 1.1 工程问题与通路
+
+假设上一份角度是 359°，下一份是 1°。按正方向只转了 2°，所以要先处理跨圈，再除以两次有效采样的时间差。滤波后的速度参与速度 PI，产生受限的 Iq 参考。
+
+~~~text
+编码器新样本 → 展开角度差 ÷ 时间差 → 速度反馈
+速度目标 − 速度反馈 → 较慢的速度 PI → 保持 Iq 参考 → 较快的电流 PI
+~~~
+
+新角度、外环执行和电流反馈各有自己的时刻。在两次外环更新之间，电流环持续用最近一次 Iq 目标和每拍的新电流。不同测速方法的比较见[第四章](chapter-4.md)。
+
+## 1.2 高层代码领读
 
 <span id="通用-foc-部署"></span>
-
-## 通用部署
+<span id="通用部署"></span>
 
 ### 由角度样本估计电机轴速度
 
-先在模型中把理想速度反馈换成角度测量链。单圈计数每满 65536 回到 0，程序须先处理跨圈，再将计数差乘以 `2π/65536` 转为机械 rad。下面摘自 `Rotor_Update`，`corrected` 是当前样本经过方向归一化和可选 LUT 后的计数。 [样本处理源码](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L32)
+测速从相邻两份有效角度样本开始。单圈计数每满 65536 回到 0，程序须先处理跨圈，再将计数差乘以 `2π/65536` 转为机械 rad。下面摘自 `Rotor_Update`，`corrected` 是当前样本经过方向归一化和可选 LUT 后的计数。 [样本处理源码](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L32)
 
 ```c
 int32_t delta_count = (int32_t)corrected - (int32_t)rotor->corrected_angle_u16;
@@ -34,9 +46,9 @@ float alpha = dt / (tau + dt);
 rotor->speed_rad_s += alpha * (raw_speed - rotor->speed_rad_s);
 ```
 
-`elapsed_us` 以微秒计，乘百万分之一得到秒。`tau` 是一阶低通的时间常数，截止频率为 100 Hz，本例 `alpha≈0.136`。若上一帧滤波速度为 0，这一帧更新到约 0.625 rad/s。模型里的 Unit Delay 对应 `rotor->speed_rad_s` 保存的历史值。重复或逆序时间戳返回 `false`。若新样本间隔超过 10 ms，速度清零，从新的时刻恢复测速。 [时间戳与首帧处理](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L35) · [滤波与超时配置](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/lab_config.h#L18)
+`elapsed_us` 以微秒计，乘百万分之一得到秒。`tau` 是一阶低通的时间常数，截止频率为 100 Hz，本例 `alpha≈0.136`。若上一帧滤波速度为 0，这一帧更新到约 0.625 rad/s。`rotor->speed_rad_s` 保留上一份滤波速度，供下次更新使用。重复或逆序时间戳返回 `false`。若新样本间隔超过 10 ms，速度清零，从新的时刻恢复测速。 [时间戳与首帧处理](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L35) · [滤波与超时配置](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/lab_config.h#L18)
 
-电流环可能在两份编码器样本之间执行。`Rotor_ElectricalAngle` 先用 `当前拍时间 − 样本时间` 得到样本年龄，随后用滤波速度乘年龄并加到最后一份机械角，最后减机械零位、乘极对数并折回一电圈。年龄超过 10 ms 时函数返回 `NAN`，应用的编码器健康检查会在运行态触发关断。把模型中的速度反馈和电流环使用的外推角分开画，前者在有效新样本到来时更新，后者可每个电流拍重新计算。 [电角外推源码](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L71) · [编码器健康检查](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L382)
+电流环可能在两份编码器样本之间执行。`Rotor_ElectricalAngle` 先用 `当前拍时间 − 样本时间` 得到样本年龄，随后用滤波速度乘年龄并加到最后一份机械角，最后减机械零位、乘极对数并折回一电圈。年龄超过 10 ms 时函数返回 `NAN`，应用的编码器健康检查会在运行态触发关断。速度反馈在有效新样本到来时更新，外推电角可以每个电流拍重新计算。 [电角外推源码](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L71) · [编码器健康检查](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L382)
 
 ### 速度 PI 更新 Iq，电流 PI 每拍执行
 
@@ -60,9 +72,10 @@ foc->id_ref_A = 0.0f;
 
 **离线对照。** 在同一时间轴记录机械计数、样本时间戳、瞬时速度、滤波速度、速度参考和 Iq 参考。先确认跨圈处的速度符号，再查看 Iq 只在 5 ms 的外环节拍变化。将速度参考阶跃改到足以触发 Iq 限幅，检查积分是否停止向饱和方向增长。板上的速度跟踪还需对照 Iq 反馈，才能区分外环给定和电流环响应。
 
-<span id="stm32-部署示例"></span>
+## 2.1 BSP 与 CubeMX 领读
 
-## STM32 实现
+<span id="stm32-部署示例"></span>
+<span id="stm32-实现"></span>
 
 ### 在 H743 的同一套中断里安排不同节拍
 
@@ -84,6 +97,8 @@ foc->id_ref_A = 0.0f;
 | 电流 PI | 用本拍反馈计算 | 用本拍反馈和新参考计算 | 用本拍反馈和保持的参考计算 | 用本拍反馈和保持的参考计算 |
 
 编码器请求与有效样本更新是两个事件。只有 `sample.fresh`、`sample.valid` 且 `Rotor_Update` 成功才更新速度历史。板端 UART4 的 LAB6 六通道依次为电机轴速度参考、估计速度、Iq 参考、Iq 反馈、输出轴位置、反馈电角。UART 快照适合看趋势，不能据此逐拍测量 50 μs 的控制时序。 [请求与取样](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L382) · [UART 通道](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L451)
+
+## 2.2 LAB 实机操作与验收
 
 ### 核对速度命令与停机
 

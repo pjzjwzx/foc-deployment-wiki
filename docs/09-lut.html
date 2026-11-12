@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
+<meta name="description" content="FOC 工程教程与六章目录，含 STM32H743 固件走读和实验。">
 <title>3.11 开环 LUT 标定 · FOC 部署 Wiki</title>
 <link rel="stylesheet" href="assets/wiki.css">
 <script src="assets/search-index.js" defer></script>
@@ -12,20 +12,26 @@
 <body>
 <a class="skip-link" href="#article">跳到正文</a>
 <header class="masthead"><div class="masthead-inner">
-<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">FOC 工程教程</span>
 </div></header>
 <div class="shell">
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html" aria-current="page">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">基础章节</div><a href="chapter-1.html">第 1 章 · FOC 算法（提纲）</a><a href="chapter-2.html">第 2 章 · Simulink 仿真（预留）</a><div class="nav-heading">第 3 章 · FOC 工程部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 逆 Park、SVPWM 与 PWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度环与多速率调度</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html" aria-current="page">3.11 开环 LUT 标定</a><div class="nav-heading">进阶与实践</div><a href="chapter-4.html">第 4 章 · 滤波与估计（提纲）</a><a href="chapter-5.html">第 5 章 · 离散控制（提纲）</a><a href="chapter-6.html">第 6 章 · Debug（待补案例）</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
 <header class="article-header"><span class="eyebrow">第 3 章 · 3.11</span><h1>3.11 开环 LUT 标定</h1></header>
 <p><a href="08-can-mit.html">上一节 3.10 CAN MIT</a> · <a href="index.html">课程首页</a></p>
-<p>Simulink 的理想角度传感器可以直接反馈转子角。实物上先用 <a href="05-transforms.html">3.6 的电零点标定</a> 确定角度基准，再按需要用查找表修正同一圈内随位置变化的读数误差。本节从两组开环扫描点得到一张 32 点表，再把表接回测速和电角计算。</p>
-<p><span id="通用-foc-部署"></span></p>
-<h2 id="通用部署">通用部署</h2>
+<p>电零点给出一个角度基准。整圈读数若仍有随位置变化的误差，可以用一张周期查找表修正。</p>
+<h2 id="11-工程问题与通路">1.1 工程问题与通路</h2>
+<p>设编码器在对齐位置读得正确，但转到某段角度时总是偏大。单个零位只能修正固定偏移。标定把电机带到一组已知的给定电角，记录稳定后的编码器读数，正反向各采一遍，再生成修正量。</p>
+<pre><code class="language-text">对齐 → 正反向扫描 → 生成整圈修正表 → 两个相邻表项之间插值
+</code></pre>
+<p>转到一圈末尾时，最后一个表项与第一个表项相邻。这样修正量可以跨圈连续变化。后台在扫描结束、功率输出关闭后保存标定结果。</p>
+<h2 id="12-高层代码领读">1.2 高层代码领读</h2>
+<p><span id="通用-foc-部署"></span>
+<span id="通用部署"></span></p>
 <h3 id="对齐正扫反扫">对齐、正扫、反扫</h3>
 <p>标定的角度参考来自开环给定。电流拍执行 <code>Calibration_FastStep</code>，把给定电角和缓慢上升的 Vd 送进已读过的 <code>Foc_VoltageStep</code>，Vq 为 0。达到对齐时间后，用固定目标角收集编码器样本。仅零位模式采完就生成零位候选。LUT 模式沿 32 个目标位置从 0 到 31，再从 31 沿原路回到 0，末点换向前在同一点重新静置并取样。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/calibration.c#L37">标定状态推进</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L508">给定电压输出</a></p>
 <div class="table-wrap"><table>
@@ -108,13 +114,11 @@ return (uint16_t)((int32_t)raw + (int32_t)lroundf(correction));
 </code></pre>
 <p>整数除法选出左格，余数除以格长得到插值权重。<code>next</code> 用取模将第 31 格的下一点接回第 0 格。<code>lroundf</code> 将插值修正取整，加回原始计数，再转换成单圈无符号计数。无有效表时直接返回输入。</p>
 <p><strong>手算对照。</strong> 取同一个方向归一化计数 3072、零位 1024、21 极对，并令样本年龄为 0。用上面的假定表，3072 落在第 1 格正中，修正为 <code>0.5 × 10 + 0.5 × 30 = +20</code>，返回 3092。只标零位时仍用 3072。两条路径将计数换成机械角，减零位、乘极对数再折回一电圈，电角分别约为 4.16361 rad 与 4.12334 rad。差值约 0.04027 电 rad。这是手算输入，真实表值来自各次扫描。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L71">反馈电角与外推</a></p>
-<p>在模型回放同一段编码器计数时，把 LUT 放在方向归一化之后、计数到机械角之前。并排观察原始计数、加回的修正、修正后的计数和电角，重点检查第 31 格到第 0 格的连续性。修正后的计数也用于多圈位置和速度估计。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L32">位置和速度更新</a></p>
+<p>这条处理链把 LUT 放在方向归一化之后、计数转机械角之前。第 31 格到第 0 格的插值也遵循同样的周期边界。修正后的计数也用于多圈位置和速度估计。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L32">位置和速度更新</a></p>
 <p><strong>离线核对。</strong> 用一张测试表令第 31 格修正为 <code>+6</code>、第 0 格为 <code>+2</code>。输入 <code>65535 → 0</code> 时，插值并取整的修正都是 <code>+2</code>，修正后单圈计数为 <code>1 → 2</code>。无表路径为 <code>65535 → 0</code>，两条路径按环形差计算都只前进 1 count。把测试表设为无效再重放，结果应回到无表路径。实机重新执行仅零位标定成功后，会发布新零位并清除 <code>lut_valid</code>，后续角度仍按新零位计算。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L19">查表有效位</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/calibration.c#L98">仅零位结果</a></p>
-<p><span id="stm32-部署示例"></span></p>
-<h2 id="stm32-实现">STM32 实现</h2>
 <h3 id="核对扫描入口和采样配置">核对扫描入口和采样配置</h3>
-<p>H743 示例沿用 <a href="04-sampling-zero.html">3.5 的 TIM1 与 ADC 触发</a>、<a href="03-sensors.html">3.4 的 SPI1 编码器</a> 和 <a href="08-can-mit.html">3.10 的 FDCAN1</a>。CubeMX 配置外设。标定阶段和采样计数由应用与课程配置决定，电压上限来自电机配置。<code>accept_calibration</code> 要求 LAB4 或以上、Disabled、无故障、编码器连续 25 份有效样本、母线至少 2 V 和驱动器使能成功。START 和 ZERO 均可在没有旧零位的情况下开始。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L241">接受标定请求</a></p>
-<p>在配套工程目录先离线运行 <code>python tools/can_demo.py cal-lut --voltage-mv 400</code>。起始帧为 <code>0x124  02 01 01 90 00 00 00 00</code>。操作码 <code>02</code> 请求 LUT，<code>01</code> 是事务号，<code>01 90</code> 是大端 400 mV。接着主机安排每秒 50 次 STATUS 请求，在标定期间由应用用该请求续期。仅做零位时用 <code>cal-zero</code>，起始操作码为 <code>05</code>。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.h#L19">协议与标志定义</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L267">标定命令构造</a></p>
+<p>标定阶段和采样计数由应用与课程配置决定，电压上限来自电机配置。<code>accept_calibration</code> 要求 LAB4 或以上、Disabled、无故障、编码器连续 25 份有效样本、母线至少 2 V 和驱动器使能成功。START 和 ZERO 均可在没有旧零位的情况下开始。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L241">接受标定请求</a></p>
+<p>400 mV 示例的起始帧为 <code>0x124  02 01 01 90 00 00 00 00</code>。操作码 <code>02</code> 请求 LUT，<code>01</code> 是事务号，<code>01 90</code> 是大端 400 mV。接着主机安排每秒 50 次 STATUS 请求，在标定期间由应用用该请求续期。仅做零位时用 <code>cal-zero</code>，起始操作码为 <code>05</code>。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.h#L19">协议与标志定义</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L267">标定命令构造</a></p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -147,6 +151,10 @@ return (uint16_t)((int32_t)raw + (int32_t)lroundf(correction));
 </tbody>
 </table></div>
 <p><code>0x181</code> 回显 <code>opcode | 0x80</code> 和事务号，再给结果码。STATUS 末字节 bit0 为 LUT 有效、bit1 为本次标定完成、bit2 为正在远程标定、bit3 为零位有效。复位后从有效位和读回值确认加载，本次完成位跟随本次上电的标定状态。公开快照与其他运行状态共用 CAN 看门狗，出现 <code>0x08</code> 时可参照上一节核对时间戳。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L195">回包字段</a> · <a href="08-can-mit.html#核对通信超时与停机">看门狗复现说明</a></p>
+<h2 id="21-bsp-与-cubemx-领读">2.1 BSP 与 CubeMX 领读</h2>
+<p><span id="stm32-部署示例"></span>
+<span id="stm32-实现"></span></p>
+<p>H743 沿用 <a href="04-sampling-zero.html">3.5 的 TIM1 与 ADC 触发</a>、<a href="03-sensors.html">3.4 的 SPI1 编码器</a> 和 <a href="08-can-mit.html">3.10 的 FDCAN1</a>。这里跟读保存和恢复接口。</p>
 <h3 id="在关桥之后保存并验证">在关桥之后保存并验证</h3>
 <p>扫描到 <code>CAL_PROCESS</code> 时，电流 ISR 关桥。后台也先关桥并进入 Disabled，再执行下面的短路条件。处理失败时，<code>&amp;&amp;</code> 使 Flash 保存函数不被调用。两步都成功才在临界区发布新零位和 LUT，清除 <code>rotor.valid</code>，复位 PI。下一份有效样本重新建立位置和速度历史。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L508">电流拍关桥</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L587">后台保存</a></p>
 <pre><code class="language-c">if (Calibration_Process(&amp;calibration) &amp;&amp; FlashStore_Save(&amp;calibration.result))
@@ -162,6 +170,9 @@ return (uint16_t)((int32_t)raw + (int32_t)lroundf(correction));
 }
 </code></pre>
 <p>H743 的链接脚本把程序 Flash 限为 1920 KiB，末尾从 <code>0x081E0000</code> 起留 128 KiB 给标定记录。BSP 核对 TIM1 的 MOE 和功率驱动器 EN_GATE 已关闭，擦除 Bank 2 Sector 7，把 160 字节记录写成五个 32 字节 Flashword，再读回解码并比较。上电时 <code>MotorApp_Init</code> 用同一读取接口恢复标定，记录校验检查标识、版本、配置键、有效位、CRC 和表值范围。改电机 profile、极对数、编码器方向或位数会改变配置键。当前只有一份记录，擦写中断电可能同时丢失原标定。换芯片要重新确认程序空间、擦除区域和写入粒度，且在 CubeMX 再生成后核对链接脚本的保留区。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/flash_store.c#L11">Flash 保存实现</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/STM32H743VITX_FLASH.ld#L47">链接布局</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/calibration.c#L176">记录编码与校验</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L72">启动加载</a></p>
+<h2 id="22-lab-实机操作与验收">2.2 LAB 实机操作与验收</h2>
+<h3 id="lab4-及以上扫描与读回">LAB4 及以上扫描与读回</h3>
+<p>先在配套工程目录用 <code>python tools/can_demo.py cal-lut --voltage-mv 400</code> 离线预览帧和轮询计划。</p>
 <p><strong>实物选做。</strong> 在已确认相序、角度方向与电流反馈的 LAB4 或以上工程中，使用空载、限流、有扫描空间及独立功率关断的条件。从 Disabled 读 <code>cal-info</code>，确认该电机允许的电压上限，再用已确认可稳定对齐的小电压扫描。下面以 SLCAN 的 COM5 和 400 mV 示意。</p>
 <pre><code class="language-powershell">python tools/can_demo.py --send --interface slcan --channel COM5 cal-info
 python tools/can_demo.py --send --interface slcan --channel COM5 cal-lut --voltage-mv 400
@@ -174,15 +185,20 @@ python tools/can_demo.py --send --interface slcan --channel COM5 cal-read --inde
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>
-<li><a href="#通用部署">通用部署</a><ul>
+<li><a href="#11-工程问题与通路">1.1 工程问题与通路</a></li>
+<li><a href="#12-高层代码领读">1.2 高层代码领读</a><ul>
 <li><a href="#对齐正扫反扫">对齐、正扫、反扫</a></li>
 <li><a href="#将扫描误差变成按原始计数等距的表">将扫描误差变成按原始计数等距的表</a></li>
 <li><a href="#在运行时把表接回角度反馈">在运行时把表接回角度反馈</a></li>
+<li><a href="#核对扫描入口和采样配置">核对扫描入口和采样配置</a></li>
 </ul>
 </li>
-<li><a href="#stm32-实现">STM32 实现</a><ul>
-<li><a href="#核对扫描入口和采样配置">核对扫描入口和采样配置</a></li>
+<li><a href="#21-bsp-与-cubemx-领读">2.1 BSP 与 CubeMX 领读</a><ul>
 <li><a href="#在关桥之后保存并验证">在关桥之后保存并验证</a></li>
+</ul>
+</li>
+<li><a href="#22-lab-实机操作与验收">2.2 LAB 实机操作与验收</a><ul>
+<li><a href="#lab4-及以上扫描与读回">LAB4 及以上扫描与读回</a></li>
 </ul>
 </li>
 </ul>

@@ -2,11 +2,22 @@
 
 [上一节 3.10 CAN MIT](08-can-mit.md) · [课程首页](index.md)
 
-Simulink 的理想角度传感器可以直接反馈转子角。实物上先用 [3.6 的电零点标定](05-transforms.md) 确定角度基准，再按需要用查找表修正同一圈内随位置变化的读数误差。本节从两组开环扫描点得到一张 32 点表，再把表接回测速和电角计算。
+电零点给出一个角度基准。整圈读数若仍有随位置变化的误差，可以用一张周期查找表修正。
+
+## 1.1 工程问题与通路
+
+设编码器在对齐位置读得正确，但转到某段角度时总是偏大。单个零位只能修正固定偏移。标定把电机带到一组已知的给定电角，记录稳定后的编码器读数，正反向各采一遍，再生成修正量。
+
+~~~text
+对齐 → 正反向扫描 → 生成整圈修正表 → 两个相邻表项之间插值
+~~~
+
+转到一圈末尾时，最后一个表项与第一个表项相邻。这样修正量可以跨圈连续变化。后台在扫描结束、功率输出关闭后保存标定结果。
+
+## 1.2 高层代码领读
 
 <span id="通用-foc-部署"></span>
-
-## 通用部署
+<span id="通用部署"></span>
 
 ### 对齐、正扫、反扫
 
@@ -81,19 +92,17 @@ return (uint16_t)((int32_t)raw + (int32_t)lroundf(correction));
 
 **手算对照。** 取同一个方向归一化计数 3072、零位 1024、21 极对，并令样本年龄为 0。用上面的假定表，3072 落在第 1 格正中，修正为 `0.5 × 10 + 0.5 × 30 = +20`，返回 3092。只标零位时仍用 3072。两条路径将计数换成机械角，减零位、乘极对数再折回一电圈，电角分别约为 4.16361 rad 与 4.12334 rad。差值约 0.04027 电 rad。这是手算输入，真实表值来自各次扫描。 [反馈电角与外推](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L71)
 
-在模型回放同一段编码器计数时，把 LUT 放在方向归一化之后、计数到机械角之前。并排观察原始计数、加回的修正、修正后的计数和电角，重点检查第 31 格到第 0 格的连续性。修正后的计数也用于多圈位置和速度估计。 [位置和速度更新](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L32)
+这条处理链把 LUT 放在方向归一化之后、计数转机械角之前。第 31 格到第 0 格的插值也遵循同样的周期边界。修正后的计数也用于多圈位置和速度估计。 [位置和速度更新](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L32)
 
 **离线核对。** 用一张测试表令第 31 格修正为 `+6`、第 0 格为 `+2`。输入 `65535 → 0` 时，插值并取整的修正都是 `+2`，修正后单圈计数为 `1 → 2`。无表路径为 `65535 → 0`，两条路径按环形差计算都只前进 1 count。把测试表设为无效再重放，结果应回到无表路径。实机重新执行仅零位标定成功后，会发布新零位并清除 `lut_valid`，后续角度仍按新零位计算。 [查表有效位](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/rotor.c#L19) · [仅零位结果](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/calibration.c#L98)
 
-<span id="stm32-部署示例"></span>
 
-## STM32 实现
 
 ### 核对扫描入口和采样配置
 
-H743 示例沿用 [3.5 的 TIM1 与 ADC 触发](04-sampling-zero.md)、[3.4 的 SPI1 编码器](03-sensors.md) 和 [3.10 的 FDCAN1](08-can-mit.md)。CubeMX 配置外设。标定阶段和采样计数由应用与课程配置决定，电压上限来自电机配置。`accept_calibration` 要求 LAB4 或以上、Disabled、无故障、编码器连续 25 份有效样本、母线至少 2 V 和驱动器使能成功。START 和 ZERO 均可在没有旧零位的情况下开始。 [接受标定请求](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L241)
+标定阶段和采样计数由应用与课程配置决定，电压上限来自电机配置。`accept_calibration` 要求 LAB4 或以上、Disabled、无故障、编码器连续 25 份有效样本、母线至少 2 V 和驱动器使能成功。START 和 ZERO 均可在没有旧零位的情况下开始。 [接受标定请求](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L241)
 
-在配套工程目录先离线运行 `python tools/can_demo.py cal-lut --voltage-mv 400`。起始帧为 `0x124  02 01 01 90 00 00 00 00`。操作码 `02` 请求 LUT，`01` 是事务号，`01 90` 是大端 400 mV。接着主机安排每秒 50 次 STATUS 请求，在标定期间由应用用该请求续期。仅做零位时用 `cal-zero`，起始操作码为 `05`。 [协议与标志定义](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.h#L19) · [标定命令构造](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L267)
+400 mV 示例的起始帧为 `0x124  02 01 01 90 00 00 00 00`。操作码 `02` 请求 LUT，`01` 是事务号，`01 90` 是大端 400 mV。接着主机安排每秒 50 次 STATUS 请求，在标定期间由应用用该请求续期。仅做零位时用 `cal-zero`，起始操作码为 `05`。 [协议与标志定义](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.h#L19) · [标定命令构造](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L267)
 
 | `0x124` 操作码 | 主机命令 | 回包用途 |
 |---|---|---|
@@ -103,6 +112,13 @@ H743 示例沿用 [3.5 的 TIM1 与 ADC 触发](04-sampling-zero.md)、[3.4 的 
 | 4 | `cal-read` | 停机时读取有效结果。索引 `0xFF` 为零位，0～31 为有符号表值 |
 
 `0x181` 回显 `opcode | 0x80` 和事务号，再给结果码。STATUS 末字节 bit0 为 LUT 有效、bit1 为本次标定完成、bit2 为正在远程标定、bit3 为零位有效。复位后从有效位和读回值确认加载，本次完成位跟随本次上电的标定状态。公开快照与其他运行状态共用 CAN 看门狗，出现 `0x08` 时可参照上一节核对时间戳。 [回包字段](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L195) · [看门狗复现说明](08-can-mit.md#核对通信超时与停机)
+
+## 2.1 BSP 与 CubeMX 领读
+
+<span id="stm32-部署示例"></span>
+<span id="stm32-实现"></span>
+
+H743 沿用 [3.5 的 TIM1 与 ADC 触发](04-sampling-zero.md)、[3.4 的 SPI1 编码器](03-sensors.md) 和 [3.10 的 FDCAN1](08-can-mit.md)。这里跟读保存和恢复接口。
 
 ### 在关桥之后保存并验证
 
@@ -123,6 +139,12 @@ if (Calibration_Process(&calibration) && FlashStore_Save(&calibration.result))
 ```
 
 H743 的链接脚本把程序 Flash 限为 1920 KiB，末尾从 `0x081E0000` 起留 128 KiB 给标定记录。BSP 核对 TIM1 的 MOE 和功率驱动器 EN_GATE 已关闭，擦除 Bank 2 Sector 7，把 160 字节记录写成五个 32 字节 Flashword，再读回解码并比较。上电时 `MotorApp_Init` 用同一读取接口恢复标定，记录校验检查标识、版本、配置键、有效位、CRC 和表值范围。改电机 profile、极对数、编码器方向或位数会改变配置键。当前只有一份记录，擦写中断电可能同时丢失原标定。换芯片要重新确认程序空间、擦除区域和写入粒度，且在 CubeMX 再生成后核对链接脚本的保留区。 [Flash 保存实现](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/flash_store.c#L11) · [链接布局](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/STM32H743VITX_FLASH.ld#L47) · [记录编码与校验](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/calibration.c#L176) · [启动加载](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L72)
+
+## 2.2 LAB 实机操作与验收
+
+### LAB4 及以上扫描与读回
+
+先在配套工程目录用 `python tools/can_demo.py cal-lut --voltage-mv 400` 离线预览帧和轮询计划。
 
 **实物选做。** 在已确认相序、角度方向与电流反馈的 LAB4 或以上工程中，使用空载、限流、有扫描空间及独立功率关断的条件。从 Disabled 读 `cal-info`，确认该电机允许的电压上限，再用已确认可稳定对齐的小电压扫描。下面以 SLCAN 的 COM5 和 400 mV 示意。
 

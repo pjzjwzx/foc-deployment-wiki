@@ -1,25 +1,12 @@
-# 3.8 从一拍控制理解软件分层
+# 3.8 固件分层与移植
 
-[上一节 3.7 离散 PI 电流闭环与初步调试](06-current-pi.md) · [下一节 3.9 速度估计与速度闭环](07-speed.md)
+[上一节 3.7 电流闭环与初步调试](06-current-pi.md) · [下一节 3.9 速度环与多速率调度](07-speed.md)
 
-从电流环接收的目标和送出的 duty 各追一次，再跟一遍过流停机。学完这一节，就能根据故障或改动的位置找到该读的接口。
+沿一次命令和一次关断追踪各层的交接，就能判断换板时哪些接口要重接，哪些计算可沿用。
 
-<span id="通用-foc-部署"></span>
+## 1.1 工程问题与通路
 
-## 通用部署
-
-### 从已经见过的一行找层的边界
-
-**源码摘录**。电流环算完 duty 后，应用用这一行决定能否提交。 [应用提交](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L548)
-
-~~~c
-if (running() && (!ok || !Board_ApplyDutyIsr(foc.duty)))
-    MotorApp_FaultIsr(APP_FAULT_SAMPLE);
-~~~
-
-这一行连了三种职责。`running()` 属于应用，决定当前状态是否允许出力。`foc.duty` 是算法算出的三相比例。`Board_ApplyDutyIsr` 属于板级支持层，负责在合适的时刻将这组三相比例交给硬件。板级函数返回失败时，应用决定报哪类故障并调用关桥。这样写后，换控制算法时可以继续用同一个提交接口，换 PWM 硬件时可以保留应用的成功与失败分支。
-
-在 Simulink 中，控制块直接从连线取得一组输入，再写出一组结果。实机上，反馈、指令与输出可能分属不同时间和执行环境。用两条通路梳理各层交接时需要说明的量。
+命令可能在两拍控制之间到达，采样和 PWM 又各有自己的时间。用一条电流指令和一次故障关断，看程序怎样在这些时刻交接。
 
 **执行示意**。
 
@@ -37,6 +24,22 @@ if (running() && (!ok || !Board_ApplyDutyIsr(foc.duty)))
 - **协议的接口**负责字节、字段和物理量互换。帧合法之后，还要交给应用判断是否允许执行。
 - **板级的接口**把一组采样、时间戳和故障交给上层，接收 PWM 提交和即时关断的要求。采样完整性、提交截止点及故障响应时间要写进接口的使用条件。
 
+## 1.2 高层代码领读
+
+<span id="通用-foc-部署"></span>
+<span id="通用部署"></span>
+
+### 从已经见过的一行找层的边界
+
+**源码摘录**。电流环算完 duty 后，应用用这一行决定能否提交。 [应用提交](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L548)
+
+~~~c
+if (running() && (!ok || !Board_ApplyDutyIsr(foc.duty)))
+    MotorApp_FaultIsr(APP_FAULT_SAMPLE);
+~~~
+
+这一行连了三种职责。`running()` 属于应用，决定当前状态是否允许出力。`foc.duty` 是算法算出的三相比例。`Board_ApplyDutyIsr` 属于板级支持层，负责在合适的时刻将这组三相比例交给硬件。板级函数返回失败时，应用决定报哪类故障并调用关桥。这样写后，换控制算法时可以继续用同一个提交接口，换 PWM 硬件时可以保留应用的成功与失败分支。
+
 共享数据也有接口。若后台逐字段写入新命令时被电流中断抢占，中断可能拿到新 Id 和旧 Iq。应把整份参考作为一次发布。后台读取反馈时也要在同一个时刻取得相互关联的量，例如 Iq、运行状态和故障位。可用短临界区复制少量字段，之后再完成发送。将跨环境的等待和耗时操作放在控制截止点之外。
 
 ### 沿一条电流命令走到下一拍
@@ -45,22 +48,31 @@ if (running() && (!ok || !Board_ApplyDutyIsr(foc.duty)))
 
 再走一次过流分支。测得的相电流超出阈值时，`MotorApp_FaultIsr()` 调用板级关断，锁存故障并复位控制状态。后台稍后读取状态与故障快照，生成回复。这条路径的验收顺序是先确认功率输出已停止，再确认后台报告与应用状态一致。 [故障入口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L53) · [后台入口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L575)
 
-**离线核对。** 用同一份合法目标分别跟读 Disabled 和 Current 两个分支，标出参考和命令时间在哪条分支更新。再假定下一份反馈超限，写出关断、故障锁存、状态回复三个事件的次序，指出本拍还能否提交 PWM。
+**读代码的对照例。** 同一份合法目标到达时，Disabled 分支保留原参考和命令时间，Current 分支发布新参考并更新时间。若下一份反馈超限，板级关断先执行，应用再锁存故障，后台稍后发送状态。本拍失去运行许可。
+
+
+
+### 用一帧电流目标串起调用
+
+示例帧 `0x121 7F F8 06 00 00 00 00 00` 到达时，假设处于 Current、无故障且命令新鲜。
+
+1. **解码。** `Protocol_Decode` 检查帧格式，从前三字节拆出两个 12 位整数 `0x7FF`、`0x806`。再按两个字段的协议量程还原为约 −0.00122 A 与 +0.09524 A。解码成功返回 true，后台才调用 `MotorApp_AcceptCommand`。完整帧格式见 3.10。 [解码定义](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.c#L29) · [后台调用](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L611) · [3.10 CAN MIT](08-can-mit.md)
+2. **接受。** 应用先以接收时间检查队列里的帧是否过期。对这帧再要求 `state == APP_CURRENT` 且无故障。在短临界区内，`reference = *cmd` 复制整份命令，接着限幅并更新 `last_command_us`。仅给变量加 `volatile` 只能约束访问，结构体的多个字段仍需要一起发布。若状态还在 Disabled，解码成功的这帧也会被应用拒绝，参考和命令时间都保持原值。 [命令入口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L306) · [命令发布](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L342) · [临界区实现](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L37)
+3. **进入控制拍。** ADC 三相帧到齐后，Current 分支把参考复制到 `foc.id_ref_A`、`foc.iq_ref_A`。电流环再应用运行限流，结合新的反馈算出 duty。板级接口接收这组三相 duty 和提交请求。脚本每 20 ms 发一帧，正常情况下约每 400 个电流节拍收到一次新目标。 [电流环调用与 PWM 提交](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L541)
+
+反馈也沿相反方向跨层。后台在短临界区内，用同一次读取的角度、速度、Iq、运行状态和故障位生成反馈帧，再恢复中断并尝试发送。这样本帧的电流和状态来自同一份快照。 [后台反馈快照](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L627)
+
+## 2.1 BSP 与 CubeMX 领读
 
 <span id="stm32-部署示例"></span>
-
-## STM32 实现
+<span id="stm32-实现"></span>
 
 ### 沿 0x121 跟到电流环
 
-已有配套工程时，可离线运行 `python tools/can_demo.py current --id 0 --iq 0.1 --duration 1`，得到电流目标帧 `0x121 7F F8 06 00 00 00 00 00`。脚本还会显示进入 Current 及退出的状态请求。下面沿电流目标帧走一次，假设接收时处于 Current、无故障且命令新鲜。 [命令脚本](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/tools/can_demo.py#L276)
+FDCAN 的初始化和过滤配置见 3.10。这里跟读从硬件收帧到应用收到数据的接口。临界区接口保存并恢复原来的中断屏蔽状态，以便应用成组发布目标和反馈。 [临界区实现](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L37) · [FDCAN 配置](08-can-mit.md#由-cubemx-配置-h743-的-classic-can)
 
 1. **收帧。** FDCAN 的 FIFO0 回调检查标准数据帧和 8 字节长度，把 ID、数据和接收时间放入 BSP 接收队列。队列满时记录丢帧。后台从 `Board_CanReceive` 取得完整帧和时间。 [接收队列](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L243) · [FDCAN 回调](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L268)
-2. **解码。** `Protocol_Decode` 检查帧格式，从前三字节拆出两个 12 位整数 `0x7FF`、`0x806`。再按两个字段的协议量程还原为约 −0.00122 A 与 +0.09524 A。解码成功返回 true，后台才调用 `MotorApp_AcceptCommand`。完整帧格式见 3.10。 [解码定义](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/communication/protocol.c#L29) · [后台调用](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L611) · [3.10 CAN MIT](08-can-mit.md)
-3. **接受。** 应用先以接收时间检查队列里的帧是否过期。对这帧再要求 `state == APP_CURRENT` 且无故障。在短临界区内，`reference = *cmd` 复制整份命令，接着限幅并更新 `last_command_us`。临界区保存并恢复原来的中断屏蔽设置。仅给变量加 `volatile` 只能约束访问，结构体的多个字段仍需要一起发布。若状态还在 Disabled，解码成功的这帧也会被应用拒绝，参考和命令时间都保持原值。 [命令入口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L306) · [命令发布](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L342) · [临界区实现](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L37)
-4. **进入控制拍。** ADC 三相帧到齐后，Current 分支把参考复制到 `foc.id_ref_A`、`foc.iq_ref_A`。电流环再应用运行限流，结合新的反馈算出 duty。BSP 负责将 duty 换成 CCR 并提交。脚本每 20 ms 发一帧，正常情况下约每 400 个电流节拍收到一次新目标。 [电流环调用与 PWM 提交](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L541)
-
-反馈也沿相反方向跨层。后台在短临界区内，用同一次读取的角度、速度、Iq、运行状态和故障位生成反馈帧，再恢复中断并尝试发送。这样本帧的电流和状态来自同一份快照。 [后台反馈快照](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L627)
+后台完成解码和状态判断后，PWM 提交沿用 3.5 和 3.7 的定时器窗口。
 
 ### 从过流回看即时关断和后台通知
 
@@ -83,4 +95,13 @@ if (running() && (!ok || !Board_ApplyDutyIsr(foc.duty)))
 
 阅读跨层调用时，先在 `foc.h` 或 `board.h` 看声明怎样约定参数和返回值，再到对应的 `.c` 看函数定义。编译器依据声明检查调用，链接器把调用接到具体实现。只有声明、没有编进对应的定义时，链接器会报告 `undefined reference`。沿着本节的两条路径，可以定位要改的是命令字段、允许条件、算法参数，还是硬件接口。后续速度环只增加一种生成 Iq 参考的方法，仍然用本章的电流环和提交路径。 [控制接口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.h) · [板级接口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.h) · [换板参考](reference.md#换用其他-stm32)
 
-**换板练习。** 在目标板的时序图上标出完整采样帧何时可读、时间戳表示哪个事件、`Board_ApplyDutyIsr()` 最晚何时能提交，以及故障时关断经过哪些硬件。先用模拟板级接口注入过流检查故障分支。实物验收时用不驱动电机的方式检查允许信号与输出关断时序，记录信号和时间。
+## 2.2 LAB 实机操作与验收
+
+在 LAB5 的小阶跃已通过、空载限流且有独立功率关断手段时，复用同一小给定完成一次正常启停。以下命令先用于离线预览，实发参数沿用 [3.7 电流环步骤](06-current-pi.md#用阶跃核对参考反馈和饱和)。
+
+~~~powershell
+python tools/can_demo.py current --id 0 --iq 0.1 --duration 1
+~~~
+
+1. 先记录控制器进入 Current 后的目标与反馈。正常结束后，检查 PWM 输出允许与驱动使能均已关闭，状态回报为 Disabled。
+2. 停机状态或输出异常时，用独立功率关断手段停止实验。过流分支使用上面的手算输入或软件验证记录来读。 [验证记录](reference.md#验证记录)

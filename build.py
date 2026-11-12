@@ -14,21 +14,26 @@ import markdown
 
 PAGES = {
     'index': ('首页', 'FOC 部署 Wiki'),
+    'chapter-1': ('第 1 章 · FOC 算法（提纲）', '课程提纲'),
+    'chapter-2': ('第 2 章 · Simulink 仿真（预留）', '预留章节'),
     '00-project': ('3.1 工程启动', '第 3 章 · 3.1'),
-    '01-pwm-svpwm': ('3.2 PWM 与 SVPWM', '第 3 章 · 3.2'),
+    '01-pwm-svpwm': ('3.2 逆 Park、SVPWM 与 PWM', '第 3 章 · 3.2'),
     '02-open-loop': ('3.3 电压开环部署', '第 3 章 · 3.3'),
     '03-sensors': ('3.4 电流与角度传感器', '第 3 章 · 3.4'),
     '04-sampling-zero': ('3.5 采样、中断与一拍控制', '第 3 章 · 3.5'),
     '05-transforms': ('3.6 电零点与开环波形验算', '第 3 章 · 3.6'),
     '06-current-pi': ('3.7 PI 电流闭环', '第 3 章 · 3.7'),
     '06a-software-architecture': ('3.8 软件分层', '第 3 章 · 3.8'),
-    '07-speed': ('3.9 速度估计与速度闭环', '第 3 章 · 3.9'),
+    '07-speed': ('3.9 速度环与多速率调度', '第 3 章 · 3.9'),
     '08-can-mit': ('3.10 CAN MIT', '第 3 章 · 3.10'),
     '09-lut': ('3.11 开环 LUT 标定', '第 3 章 · 3.11'),
+    'chapter-4': ('第 4 章 · 滤波与估计（提纲）', '课程提纲'),
+    'chapter-5': ('第 5 章 · 离散控制（提纲）', '课程提纲'),
+    'chapter-6': ('第 6 章 · Debug（待补案例）', '课程提纲'),
     'reference': ('配置与验证参考', '附录'),
     'source': ('源码定位', '附录'),
 }
-READING = [page for page in PAGES if page != 'source']
+READING = [page for page in PAGES if not page.startswith('chapter-') and page != 'source']
 DIST = ROOT / 'docs'
 
 
@@ -39,10 +44,11 @@ def slug(value, separator):
 
 def nav(current):
     out = ['<nav aria-label="课程导航">']
+    groups = {'chapter-1': '基础章节', '00-project': '第 3 章 · FOC 工程部署',
+              'chapter-4': '进阶与实践', 'reference': '附录'}
     for key, (name, _) in PAGES.items():
-        if key in ('00-project', 'reference'):
-            heading = '第 3 章 · FOC 实际部署' if key == '00-project' else '附录'
-            out.append(f'<div class="nav-heading">{heading}</div>')
+        if key in groups:
+            out.append(f'<div class="nav-heading">{groups[key]}</div>')
         marker = ' aria-current="page"' if key == current else ''
         out.append(f'<a href="{key}.html"{marker}>{name}</a>')
     return ''.join(out) + '</nav>'
@@ -88,7 +94,7 @@ def render(name):
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
+<meta name="description" content="FOC 工程教程与六章目录，含 STM32H743 固件走读和实验。">
 <title>{escape(title)} · FOC 部署 Wiki</title>
 <link rel="stylesheet" href="assets/wiki.css">
 <script src="assets/search-index.js" defer></script>
@@ -97,7 +103,7 @@ def render(name):
 <body>
 <a class="skip-link" href="#article">跳到正文</a>
 <header class="masthead"><div class="masthead-inner">
-<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">FOC 工程教程</span>
 </div></header>
 <div class="shell">
 <aside class="sidebar">

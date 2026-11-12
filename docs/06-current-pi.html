@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
-<title>3.7 离散 PI 电流闭环与初步调试 · FOC 部署 Wiki</title>
+<meta name="description" content="FOC 工程教程与六章目录，含 STM32H743 固件走读和实验。">
+<title>3.7 电流闭环与初步调试 · FOC 部署 Wiki</title>
 <link rel="stylesheet" href="assets/wiki.css">
 <script src="assets/search-index.js" defer></script>
 <script src="assets/wiki.js" defer></script>
@@ -12,22 +12,30 @@
 <body>
 <a class="skip-link" href="#article">跳到正文</a>
 <header class="masthead"><div class="masthead-inner">
-<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">FOC 工程教程</span>
 </div></header>
 <div class="shell">
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html" aria-current="page">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">基础章节</div><a href="chapter-1.html">第 1 章 · FOC 算法（提纲）</a><a href="chapter-2.html">第 2 章 · Simulink 仿真（预留）</a><div class="nav-heading">第 3 章 · FOC 工程部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 逆 Park、SVPWM 与 PWM</a><a href="02-open-loop.html">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html" aria-current="page">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度环与多速率调度</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">进阶与实践</div><a href="chapter-4.html">第 4 章 · 滤波与估计（提纲）</a><a href="chapter-5.html">第 5 章 · 离散控制（提纲）</a><a href="chapter-6.html">第 6 章 · Debug（待补案例）</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
-<header class="article-header"><span class="eyebrow">第 3 章 · 3.7</span><h1>3.7 离散 PI 电流闭环与初步调试</h1></header>
-<p><a href="05-transforms.html">上一节 3.6 电零点、坐标变换与开环波形验算</a> · <a href="06a-software-architecture.html">下一节 3.8 从一拍控制理解软件分层</a></p>
-<p>电压开环直接给定 Vd/Vq。接入电流闭环后，两只离散 PI 根据每拍测得的 Id/Iq 计算需要的电压。本节先手算一拍和一次饱和，再用小电流阶跃判断初始增益怎样调整。</p>
-<p><span id="通用-foc-部署"></span></p>
-<h2 id="通用部署">通用部署</h2>
+<header class="article-header"><span class="eyebrow">第 3 章 · 3.7</span><h1>3.7 电流闭环与初步调试</h1></header>
+<p><a href="05-transforms.html">上一节 3.6 电零点与开环波形验算</a> · <a href="06a-software-architecture.html">下一节 3.8 固件分层与移植</a></p>
+<p>开环验算通过后，可以让控制器根据实测电流调节电压。本节跟一拍 PI 的计算和限幅，再用小阶跃判断响应。</p>
+<h2 id="11-工程问题与通路">1.1 工程问题与通路</h2>
+<p>假设目标 Iq 比反馈大一点。控制器先根据误差增加 q 轴电压，逆变器施加新的电压，下一拍再看电流是否往目标移动。比例项对这一拍的误差立即响应，积分项记住此前还没有消除的误差。</p>
+<pre><code class="language-text">Id/Iq 目标 − 实测 Id/Iq → 两轴 PI → dq 电压 → 逆 Park 与 SVPWM
+              ↑                                ↓
+              └───── 下一帧电流与反馈角 ← PWM 生效
+</code></pre>
+<p>母线能提供的电压有限。如果已经到上限，继续沿同一方向累加积分会让误差反向后仍推着输出顶在上限。程序用限幅前后的差值决定这一拍能否更新积分。</p>
+<h2 id="12-高层代码领读">1.2 高层代码领读</h2>
+<p><span id="通用-foc-部署"></span>
+<span id="通用部署"></span></p>
 <h3 id="从模型的电流误差找到-c-中的两只-pi">从模型的电流误差找到 C 中的两只 PI</h3>
-<p>把模型里手动给定的 Vd/Vq 换成电流控制器的输出。实测三相电流经 Clarke、Park 得到 Id/Iq，用各自的目标减去反馈，得到两轴误差。示例在 Current 状态把命令写进控制对象，随后把本拍反馈电角和实测母线交给电流环。</p>
+<p>电流控制器为这一拍给出 Vd/Vq。实测三相电流经 Clarke、Park 得到 Id/Iq，用各自的目标减去反馈，得到两轴误差。示例在 Current 状态把命令写进控制对象，随后把本拍反馈电角和实测母线交给电流环。</p>
 <p><strong>源码摘录</strong>。ADC 采样已换算为 A，<code>Foc_Measure</code> 已更新反馈，母线与状态检查已通过。这里省略了开环、标定和速度等其他分支。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L541">电流环调用</a></p>
 <pre><code class="language-c">if (state == APP_CURRENT)
 {
@@ -71,7 +79,7 @@ ok = ok &amp;&amp; Foc_CurrentStep(&amp;foc, angle, bus);
 </tr>
 </tbody>
 </table></div>
-<p>在模型中对照离散步长与积分顺序。示例把连续 Ki 保存为 1300，再在每拍乘 Ts。如果模型的离散块已把 Ki·Ts 预乘到系数中，核对单拍增量时只乘一次 Ts。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L55">初始化和复位</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/motor_config.h#L25">电机参数</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/lab_config.h#L24">周期定义</a></p>
+<p>离散步长决定单拍积分增量。示例把连续 Ki 保存为 1300，再在每拍乘 Ts。如果模型的离散块已把 Ki·Ts 预乘到系数中，核对单拍增量时只乘一次 Ts。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L55">初始化和复位</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/motor_config.h#L25">电机参数</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/lab_config.h#L24">周期定义</a></p>
 <h3 id="跟一拍离散积分限幅和调制">跟一拍离散积分、限幅和调制</h3>
 <p>函数入口检查反馈角、目标、反馈、运行限流和母线是否有效。它先限制电流目标，GB7215 的 Id 上限为 ±5 A，Current 进入时 Iq 运行限流为 ±1 A。接着从目标减反馈，两轴各计算候选积分和未限幅的电压。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L134">电流目标与电压计算</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L150">模式切换初始化</a></p>
 <p><strong>源码摘录</strong>。展示 q 轴对应的计算行，d 轴和后续检查见链接中的完整函数。</p>
@@ -118,7 +126,32 @@ return Foc_VoltageStep(foc, angle, vd, vq, bus_voltage_V);
 </tr>
 </tbody>
 </table></div>
-<p>再单独核对饱和分支。取 <code>ed=0</code>、<code>eq=1 A</code>、旧 q 积分 11.5 V，其余条件相同。候选积分为 11.565 V，未限制 Vq 为 12.295 V。试限幅到 12 V 后，<code>eq·(raw_q−vq)</code> 为正，积分保留 11.5 V。用它重算的 12.23 V 在调制前再次限到 12 V。用模型的同一组输入核对候选积分、保存的积分和最终电压。</p>
+<p>再单独核对饱和分支。取 <code>ed=0</code>、<code>eq=1 A</code>、旧 q 积分 11.5 V，其余条件相同。候选积分为 11.565 V，未限制 Vq 为 12.295 V。试限幅到 12 V 后，<code>eq·(raw_q−vq)</code> 为正，积分保留 11.5 V。用它重算的 12.23 V 在调制前再次限到 12 V。这三个值分别对应积分候选、实际保存的积分与限幅后的输出。</p>
+<h2 id="21-bsp-与-cubemx-领读">2.1 BSP 与 CubeMX 领读</h2>
+<p><span id="stm32-部署示例"></span>
+<span id="stm32-实现"></span></p>
+<h3 id="同一拍把-duty-交给-tim1">同一拍把 duty 交给 TIM1</h3>
+<p><strong>执行示意</strong>。沿 3.5 的触发和三相帧汇合进入应用，电流运算成功后才尝试写定时器。</p>
+<pre><code class="language-text">ADC 帧 → 减零偏并换算 A → Clarke/Park → 电流 PI
+      → 电压矢量限幅 → 逆 Park/SVPWM → duty → TIM1 CCR1/2/3
+</code></pre>
+<p><strong>源码摘录</strong>。这是运行分支末尾。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L548">应用提交</a></p>
+<pre><code class="language-c">if (running() &amp;&amp; (!ok || !Board_ApplyDutyIsr(foc.duty)))
+    MotorApp_FaultIsr(APP_FAULT_SAMPLE);
+</code></pre>
+<p><code>running()</code> 为真且算法成功时，应用才调用板级提交。BSP 检查 duty 的范围和有限性，然后在短临界区检查驱动就绪、故障脚、计数方向和截止点。通过后按 PWM2 的极性将 <code>(1−duty)×ARR</code> 截断成整数，依次写三个 CCR，再打开 TIM1 总输出允许。本页手算的 duty 对应 <code>3000、2982、3017</code>。预装载值在更新事件生效。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L104">板级提交和 CCR 写入</a></p>
+<p>TIM1 以 240 MHz 中心对齐计数，上数到 6000 需 25 μs，下数再需 25 μs。<strong>50 μs 是 PI 周期</strong>。CH4 在接近底端的上数 1 触发 ADC，CCR 提交要求上数且 <code>CNT &lt; 5520</code>，给上端点预留 480 格即 2 μs。从底端到门槛约 23 μs，这段预算包含采样、转换、中断和计算。3.5 的三相回调还有独立的到齐检查。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/tim.c#L30">TIM1 配置</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L298">三相汇合</a></p>
+<p>假设 duty 合法、驱动正常且计数向上。提交时 <code>CNT=5000</code> 会写入 CCR，函数返回 true，应用继续记录诊断。到 <code>CNT=5520</code> 时板级拒绝写入并返回 false，应用报采样故障。算法提前返回 false 时，<code>!ok</code> 让本拍跳过板级提交，同样走关桥。故障处理会清目标和积分。若三相换算时已发现过流，关桥在前，运行状态检查会阻止本拍提交。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L53">故障与复位</a></p>
+<h2 id="22-lab-实机操作与验收">2.2 LAB 实机操作与验收</h2>
+<h3 id="用阶跃核对参考反馈和饱和">用阶跃核对参考、反馈和饱和</h3>
+<p>在电脑用表中的同一组电流、角度、母线和初值对照模型与 C。已有配套工程的读者也可以运行 <code>python tools/check.py</code>。实机用 LAB5（<code>LAB_CURRENT_PI</code>），先确认电零位有效、开环方向与电流极性已核对。按 3.3 的条件准备低电压、限流、短时启停。先运行离线命令观察报文，再决定是否按实物步骤发送。</p>
+<pre><code class="language-powershell">python tools/can_demo.py current --id 0 --iq 0.1 --duration 1
+</code></pre>
+<ol>
+<li>记录基线设置，按 3.3 选择 CAN 适配器并确认停机方法。若执行实发，从适合该电机的小 Iq 短时阶跃开始。固定 Iq 会产生力矩，空载可能加速，观察速度并在异常时停机。</li>
+<li>JustFloat 的六通道依次为 <code>Id_ref, Id, Iq_ref, Iq, Vd, Vq</code>。以记录到的 <code>Iq_ref</code> 变化时刻为阶跃起点。确认 Iq 的方向、Id 的偏离程度和电压余量，再按前面的表判断。UART4 的名义 1 kHz 遥测用于看趋势。需要判断短暂超调、积分写回或单拍提交时，分别补做快速记录或离线测试。<code>max_isr_cycles</code> 可辅助核对应用耗时。</li>
+<li>只有基线方向正确、响应稳定且有电压余量时，才用同一阶跃对比另一组初始增益。先停机，在 <code>config/motor_config.h</code> 小幅修改带宽并重建下载。把两次反馈叠在同一时间轴上，记录带宽、母线、负载和采样条件。如果超调或振荡恶化，停止输出并恢复已验证的设置。退出模式或故障时，<code>Foc_Reset</code> 会清掉旧目标和积分。实板结果待记录。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L442-L466">遥测与诊断</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L116-L135">停机状态处理</a> · <a href="02-open-loop.html">启停与观察步骤</a> · <a href="reference.html#验证记录">验证记录</a></li>
+</ol>
 <h3 id="用小阶跃判断初始增益">用小阶跃判断初始增益</h3>
 <p>先在模型或电脑上的测试中保持 <code>Id_ref=0</code>，给 Iq 参考一个小台阶。记下采样周期、母线、限幅、初始积分和电机参数。将参考、电流反馈和 Vd/Vq 画在同一时间轴上，读出响应方向、上升时间、超调、稳定后的误差以及电压是否贴住上限。先用未饱和的结果判断增益，再单独用离线饱和算例核对积分能否停止累加或在反向误差下退出饱和。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L134-L155">限幅和积分写回</a></p>
 <div class="table-wrap"><table>
@@ -152,43 +185,24 @@ return Foc_VoltageStep(foc, angle, vd, vq, bus_voltage_V);
 </tbody>
 </table></div>
 <p>在模型里分别改一次 Kp 或 Ki，观察比例项怎样改变初始响应、积分项怎样改变后续误差。上板的起始调整按固件的 <code>MOTOR_CURRENT_BANDWIDTH_RAD_S</code> 进行，它会按 <code>Foc_Init</code> 的公式同时更新 Kp 和 Ki。每轮只改这一个设置，保留原值，保持同一电机、母线、负载、目标和初始状态。先确认响应稳定，再比较快慢。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/config/motor_config.h#L51-L59">带宽参数</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/control/foc.c#L51-L72">增益初始化</a></p>
-<p><span id="stm32-部署示例"></span></p>
-<h2 id="stm32-实现">STM32 实现</h2>
-<h3 id="同一拍把-duty-交给-tim1">同一拍把 duty 交给 TIM1</h3>
-<p><strong>执行示意</strong>。沿 3.5 的触发和三相帧汇合进入应用，电流运算成功后才尝试写定时器。</p>
-<pre><code class="language-text">ADC 帧 → 减零偏并换算 A → Clarke/Park → 电流 PI
-      → 电压矢量限幅 → 逆 Park/SVPWM → duty → TIM1 CCR1/2/3
-</code></pre>
-<p><strong>源码摘录</strong>。这是运行分支末尾。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L548">应用提交</a></p>
-<pre><code class="language-c">if (running() &amp;&amp; (!ok || !Board_ApplyDutyIsr(foc.duty)))
-    MotorApp_FaultIsr(APP_FAULT_SAMPLE);
-</code></pre>
-<p><code>running()</code> 为真且算法成功时，应用才调用板级提交。BSP 检查 duty 的范围和有限性，然后在短临界区检查驱动就绪、故障脚、计数方向和截止点。通过后按 PWM2 的极性将 <code>(1−duty)×ARR</code> 截断成整数，依次写三个 CCR，再打开 TIM1 总输出允许。本页手算的 duty 对应 <code>3000、2982、3017</code>。预装载值在更新事件生效。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L104">板级提交和 CCR 写入</a></p>
-<p>TIM1 以 240 MHz 中心对齐计数，上数到 6000 需 25 μs，下数再需 25 μs。<strong>50 μs 是 PI 周期</strong>。CH4 在接近底端的上数 1 触发 ADC，CCR 提交要求上数且 <code>CNT &lt; 5520</code>，给上端点预留 480 格即 2 μs。从底端到门槛约 23 μs，这段预算包含采样、转换、中断和计算。3.5 的三相回调还有独立的到齐检查。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/tim.c#L30">TIM1 配置</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L298">三相汇合</a></p>
-<p>假设 duty 合法、驱动正常且计数向上。提交时 <code>CNT=5000</code> 会写入 CCR，函数返回 true，应用继续记录诊断。到 <code>CNT=5520</code> 时板级拒绝写入并返回 false，应用报采样故障。算法提前返回 false 时，<code>!ok</code> 让本拍跳过板级提交，同样走关桥。故障处理会清目标和积分。若三相换算时已发现过流，关桥在前，运行状态检查会阻止本拍提交。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L53">故障与复位</a></p>
-<h3 id="用阶跃核对参考反馈和饱和">用阶跃核对参考、反馈和饱和</h3>
-<p>在电脑用表中的同一组电流、角度、母线和初值对照模型与 C。已有配套工程的读者也可以运行 <code>python tools/check.py</code>。实机用 LAB5（<code>LAB_CURRENT_PI</code>），先确认电零位有效、开环方向与电流极性已核对。按 3.3 的条件准备低电压、限流、短时启停。先运行离线命令观察报文，再决定是否按实物步骤发送。</p>
-<pre><code class="language-powershell">python tools/can_demo.py current --id 0 --iq 0.1 --duration 1
-</code></pre>
-<ol>
-<li>记录基线设置，按 3.3 选择 CAN 适配器并确认停机方法。若执行实发，从适合该电机的小 Iq 短时阶跃开始。固定 Iq 会产生力矩，空载可能加速，观察速度并在异常时停机。</li>
-<li>JustFloat 的六通道依次为 <code>Id_ref, Id, Iq_ref, Iq, Vd, Vq</code>。以记录到的 <code>Iq_ref</code> 变化时刻为阶跃起点。确认 Iq 的方向、Id 的偏离程度和电压余量，再按前面的表判断。UART4 的名义 1 kHz 遥测用于看趋势。需要判断短暂超调、积分写回或单拍提交时，分别补做快速记录或离线测试。<code>max_isr_cycles</code> 可辅助核对应用耗时。</li>
-<li>只有基线方向正确、响应稳定且有电压余量时，才用同一阶跃对比另一组初始增益。先停机，在 <code>config/motor_config.h</code> 小幅修改带宽并重建下载。把两次反馈叠在同一时间轴上，记录带宽、母线、负载和采样条件。如果超调或振荡恶化，停止输出并恢复已验证的设置。退出模式或故障时，<code>Foc_Reset</code> 会清掉旧目标和积分。实板结果待记录。 <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L442-L466">遥测与诊断</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/app/motor_app.c#L116-L135">停机状态处理</a> · <a href="02-open-loop.html">启停与观察步骤</a> · <a href="reference.html#验证记录">验证记录</a></li>
-</ol>
 <div class="pager"><a href="05-transforms.html"><small>上一页</small>3.6 电零点与开环波形验算</a><a href="06a-software-architecture.html"><small>下一页</small>3.8 软件分层</a></div>
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>
-<li><a href="#通用部署">通用部署</a><ul>
+<li><a href="#11-工程问题与通路">1.1 工程问题与通路</a></li>
+<li><a href="#12-高层代码领读">1.2 高层代码领读</a><ul>
 <li><a href="#从模型的电流误差找到-c-中的两只-pi">从模型的电流误差找到 C 中的两只 PI</a></li>
 <li><a href="#从电机参数得到第一组-pi-系数">从电机参数得到第一组 PI 系数</a></li>
 <li><a href="#跟一拍离散积分限幅和调制">跟一拍离散积分、限幅和调制</a></li>
-<li><a href="#用小阶跃判断初始增益">用小阶跃判断初始增益</a></li>
 </ul>
 </li>
-<li><a href="#stm32-实现">STM32 实现</a><ul>
+<li><a href="#21-bsp-与-cubemx-领读">2.1 BSP 与 CubeMX 领读</a><ul>
 <li><a href="#同一拍把-duty-交给-tim1">同一拍把 duty 交给 TIM1</a></li>
+</ul>
+</li>
+<li><a href="#22-lab-实机操作与验收">2.2 LAB 实机操作与验收</a><ul>
 <li><a href="#用阶跃核对参考反馈和饱和">用阶跃核对参考、反馈和饱和</a></li>
+<li><a href="#用小阶跃判断初始增益">用小阶跃判断初始增益</a></li>
 </ul>
 </li>
 </ul>

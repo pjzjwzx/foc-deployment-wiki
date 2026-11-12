@@ -60,14 +60,14 @@ python tools/can_demo.py open --electrical-speed 10 --vq 0.2 --duration 2
 
 | 小节 | 走读内容 |
 |---|---|
-| [3.1 看懂工程怎样启动](00-project.md) | 沿 main() 找到初始化、启动失败和后台入口。 |
-| [3.2 从 Simulink 占空比到 STM32 PWM](01-pwm-svpwm.md) | 将扇区法与 min/max 调制对齐，再把 duty 交给定时器。 |
-| [3.3 第一次实际部署电压开环](02-open-loop.md) | 沿给定电角、母线与 PWM 提交走完一次启停。 |
+| [3.1 工程启动](00-project.md) | 沿 main() 找到初始化、启动失败和后台入口。 |
+| [3.2 逆 Park、SVPWM 与 PWM 输出](01-pwm-svpwm.md) | 将扇区法与 min/max 调制对齐，再把 duty 交给定时器。 |
+| [3.3 第一次电压开环](02-open-loop.md) | 沿给定电角、母线与 PWM 提交走完一次启停。 |
 | [3.4 电流与角度传感器](03-sensors.md) | 从 ADC 计数和编码器帧得到安培与机械角。 |
 | [3.5 采样、中断与一拍控制](04-sampling-zero.md) | 沿同一时间轴核对触发、反馈帧、控制计算和 PWM 生效。 |
-| [3.6 电零点、坐标变换与开环波形验算](05-transforms.md) | 标定电角零位，用开环反馈回放 Clarke 和 Park。 |
-| [3.7 离散 PI 电流闭环与初步调试](06-current-pi.md) | 对照误差、积分、限幅和小阶跃响应。 |
-| [3.8 从一拍控制理解软件分层](06a-software-architecture.md) | 沿命令与过流停机认识各层接口。 |
-| [3.9 速度估计与速度闭环](07-speed.md) | 从两个角度样本估速度，再由速度 PI 产生 Iq 参考。 |
+| [3.6 电零点与开环波形验算](05-transforms.md) | 标定电角零位，用开环反馈回放 Clarke 和 Park。 |
+| [3.7 电流闭环与初步调试](06-current-pi.md) | 对照误差、积分、限幅和小阶跃响应。 |
+| [3.8 固件分层与移植](06a-software-architecture.md) | 沿命令与过流停机认识各层接口。 |
+| [3.9 速度环与多速率调度](07-speed.md) | 从两个角度样本估速度，再由速度 PI 产生 Iq 参考。 |
 | [3.10 CAN MIT](08-can-mit.md) | 沿一帧报文追到输出轴力矩、电机电流和反馈。 |
 | [3.11 开环 LUT 标定](09-lut.md) | 读懂正反向扫描、角度修正与掉电保存。 |

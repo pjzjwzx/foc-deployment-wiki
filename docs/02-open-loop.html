@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="从 Simulink 仿真到 STM32 实机部署的 FOC 教程。">
-<title>3.3 第一次实际部署电压开环 · FOC 部署 Wiki</title>
+<meta name="description" content="FOC 工程教程与六章目录，含 STM32H743 固件走读和实验。">
+<title>3.3 第一次电压开环 · FOC 部署 Wiki</title>
 <link rel="stylesheet" href="assets/wiki.css">
 <script src="assets/search-index.js" defer></script>
 <script src="assets/wiki.js" defer></script>
@@ -12,22 +12,37 @@
 <body>
 <a class="skip-link" href="#article">跳到正文</a>
 <header class="masthead"><div class="masthead-inner">
-<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">Simulink → STM32 · 第 3 章</span>
+<a class="brand" href="index.html">FOC 部署 Wiki</a><span class="edition">FOC 工程教程</span>
 </div></header>
 <div class="shell">
 <aside class="sidebar">
 <form class="search" role="search"><input type="search" aria-label="搜索课程" placeholder="搜索课程" autocomplete="off"><button type="submit">搜索</button></form>
 <div class="search-results" aria-live="polite" hidden></div>
-<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">第 3 章 · FOC 实际部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 PWM 与 SVPWM</a><a href="02-open-loop.html" aria-current="page">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度估计与速度闭环</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
+<nav aria-label="课程导航"><a href="index.html">首页</a><div class="nav-heading">基础章节</div><a href="chapter-1.html">第 1 章 · FOC 算法（提纲）</a><a href="chapter-2.html">第 2 章 · Simulink 仿真（预留）</a><div class="nav-heading">第 3 章 · FOC 工程部署</div><a href="00-project.html">3.1 工程启动</a><a href="01-pwm-svpwm.html">3.2 逆 Park、SVPWM 与 PWM</a><a href="02-open-loop.html" aria-current="page">3.3 电压开环部署</a><a href="03-sensors.html">3.4 电流与角度传感器</a><a href="04-sampling-zero.html">3.5 采样、中断与一拍控制</a><a href="05-transforms.html">3.6 电零点与开环波形验算</a><a href="06-current-pi.html">3.7 PI 电流闭环</a><a href="06a-software-architecture.html">3.8 软件分层</a><a href="07-speed.html">3.9 速度环与多速率调度</a><a href="08-can-mit.html">3.10 CAN MIT</a><a href="09-lut.html">3.11 开环 LUT 标定</a><div class="nav-heading">进阶与实践</div><a href="chapter-4.html">第 4 章 · 滤波与估计（提纲）</a><a href="chapter-5.html">第 5 章 · 离散控制（提纲）</a><a href="chapter-6.html">第 6 章 · Debug（待补案例）</a><div class="nav-heading">附录</div><a href="reference.html">配置与验证参考</a><a href="source.html">源码定位</a></nav>
 </aside>
 <main class="article" id="article">
-<header class="article-header"><span class="eyebrow">第 3 章 · 3.3</span><h1>3.3 第一次实际部署电压开环</h1></header>
-<p><a href="01-pwm-svpwm.html">上一节 3.2 PWM 与 SVPWM</a> · <a href="03-sensors.html">下一节 3.4 电流与角度传感器</a></p>
-<p>这一节把 Simulink 里的电压开环接到实物。你会沿同一条通路找到模型信号、C 变量和板上输出，然后构建 LAB2，下载到板上，用小幅 Vq 给定完成一次短时开环和停机。手边没有板时，可以沿现有模型波形读代码，并对照本页的离线输出。实机下载与试转待验证。</p>
-<p><span id="通用-foc-部署"></span></p>
-<h2 id="通用部署">通用部署</h2>
+<header class="article-header"><span class="eyebrow">第 3 章 · 3.3</span><h1>3.3 第一次电压开环</h1></header>
+<p><a href="01-pwm-svpwm.html">上一节 3.2 逆 Park、SVPWM 与 PWM 输出</a> · <a href="03-sensors.html">下一节 3.4 电流与角度传感器</a></p>
+<p>第一次驱动电机，先把旋转电压、启桥检查和停机连成一条可追踪的通路。示例使用 LAB2，实机试转待验证。</p>
+<h2 id="11-工程问题与通路">1.1 工程问题与通路</h2>
+<p>开环时，应用自己推进给定电角。每拍按 <code>ωe × Ts</code> 增加角度，固定的 dq 电压请求随角度旋转，逆 Park 和 SVPWM 将它交给桥臂。编码器仍参与健康检查，驱动电压使用的是给定角。</p>
+<p><strong>执行示意</strong>。阶段仍是 LAB2，箭头只表示运行状态的改变。</p>
+<pre><code class="language-text">上电 → 采集电流零偏 → Disabled（2）
+                          │
+                   开环请求与检查通过
+                          ↓
+                       Open（3） ← 持续接受电角速度和 Vq
+                          │
+                          ├── 收到停机请求 → Disabled（2）
+                          └── 运行故障 → Fault（8）
+                                         └── 排除原因并明确清故障 → Disabled（2）
+</code></pre>
+<p>运行请求、驱动就绪和目标更新各有自己的时机。正常停机返回 Disabled，运行故障走关断路径并进入 Fault。</p>
+<h2 id="12-高层代码领读">1.2 高层代码领读</h2>
+<p><span id="通用-foc-部署"></span>
+<span id="通用部署"></span></p>
 <h3 id="将模型里的给定电角接到-svpwm">将模型里的给定电角接到 SVPWM</h3>
-<p>在模型里，从给定电角速度出发，每个控制周期将角度加上 <code>ωe × dt</code>，再把角度折回一圈。给定电角与 <code>Vd/Vq</code> 进入逆 Park，所得 <code>vα/vβ</code> 接到 SVPWM。打开固件的 <code>APP_OPEN</code> 分支，先按这条信号线往下读。 <a href="source.html#app-motor-app-c-l519">开环分支</a></p>
+<p>固件的 <code>APP_OPEN</code> 分支将电角速度积分成给定电角，再把给定角与电压请求交给调制。 <a href="source.html#app-motor-app-c-l519">开环分支</a></p>
 <p><strong>源码摘录</strong>。这一段位于 <code>MotorApp_CurrentIsr</code> 的运行分支内，母线检查已通过，前面的模式选择和后面的 PWM 提交略去。</p>
 <pre><code class="language-c">else if (state == APP_OPEN)
 {
@@ -41,52 +56,41 @@
 <div class="table-wrap"><table>
 <thead>
 <tr>
-<th>模型里的信号</th>
-<th>在固件中找哪里</th>
-<th>本章用什么核对</th>
+<th>信号</th>
+<th>固件变量</th>
+<th>单位与用途</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>给定电角速度 <code>ωe</code>，rad/s</td>
+<td>给定电角速度</td>
 <td><code>reference.electrical_speed_rad_s</code></td>
-<td>对照命令的 <code>--electrical-speed</code> 与给定角的斜率</td>
+<td>电 rad/s，决定每拍角度增量</td>
 </tr>
 <tr>
-<td>给定电角 <code>θe</code>，rad</td>
+<td>给定电角</td>
 <td><code>open_angle</code></td>
-<td>观察 <code>MotorApp_Diagnostics.open_angle_rad</code> 或 LAB2 遥测 ch5，核对方向和一圈折回</td>
+<td>rad，折回一电圈后用于逆 Park</td>
 </tr>
 <tr>
-<td>dq 给定电压，V</td>
+<td>dq 给定电压</td>
 <td><code>0</code> 和 <code>reference.vq_V</code></td>
-<td>对照 <code>--vq</code> 与电压限幅前的目标</td>
+<td>V，送进限幅和调制</td>
 </tr>
 <tr>
-<td>用于归一化的母线电压，V</td>
-<td><code>bus</code>，来自 <code>Board_BusVoltage()</code></td>
-<td>记录 <code>MotorApp_Diagnostics.bus_voltage_V</code>，与板上允许的测量结果对照</td>
+<td>母线电压</td>
+<td><code>bus</code>，由板级接口交付</td>
+<td>V，用于电压限幅和 duty 归一化</td>
 </tr>
 <tr>
-<td>固定坐标电压 <code>vα/vβ</code>、三相 duty</td>
-<td><code>foc.alpha_voltage_V</code>、<code>foc.beta_voltage_V</code>、<code>foc.duty[0..2]</code></td>
-<td>在模型里跟同一段角度轨迹，核对相序和 duty 变化，在板上看对应的 MCU PWM 引脚</td>
+<td>输出占空比</td>
+<td><code>foc.duty[0..2]</code></td>
+<td>三相 0～1 的比例，交给板级提交接口</td>
 </tr>
 </tbody>
 </table></div>
 <h3 id="从停机到允许开环">从停机到允许开环</h3>
 <p><code>LAB_STAGE</code> 是构建时的能力选择。设为 LAB2 后，固件上电先采集电流零偏，随后停在 <code>APP_DISABLED</code>（2）。示例通过 CAN 请求 <code>APP_OPEN</code>（3），应用接受后才持续接收电角速度和 Vq。换平台时，本地按键或其他总线也可以提供运行请求和给定。应用先处理运行状态请求，再接收与当前状态匹配的目标。 <a href="08-can-mit.html">3.10 CAN MIT</a></p>
-<p><strong>执行示意</strong>。阶段仍是 LAB2，箭头只表示运行状态的改变。</p>
-<pre><code class="language-text">上电 → 采集电流零偏 → Disabled（2）
-                          │
-                   开环请求与检查通过
-                          ↓
-                       Open（3） ← 持续接受电角速度和 Vq
-                          │
-                          ├── 收到停机请求 → Disabled（2）
-                          └── 运行故障 → Fault（8）
-                                         └── 排除原因并明确清故障 → Disabled（2）
-</code></pre>
 <p><code>request_state</code> 先检查阶段是否允许目标状态、电流零偏是否采完，并要求首次开环从 Disabled 出发且无故障。开环目标可在功率输出就绪后更新。应用收到停机请求或检测到故障时，要让输出立即进入安全状态，并清掉本次运行的目标。换板时需要给应用提供等价的就绪检查和关断接口。 <a href="source.html#app-motor-app-c-l116">状态入口</a> · <a href="source.html#app-motor-app-c-l467">零偏完成时进入 Disabled</a></p>
 <p><strong>源码摘录</strong>。继续在 <code>request_state()</code> 读首次进入 Open 等运行态时的检查。这里省略了停机、重复请求和成功发布状态的分支。</p>
 <pre><code class="language-c">if (encoder_good &lt; 25 || !rotor.valid ||
@@ -109,11 +113,12 @@ if (!Board_EnableDriver())
 <li><code>Board_EnableDriver</code> 负责准备功率驱动并确认就绪，失败会记录驱动故障。通过后应用在短临界区复查状态和故障，清旧目标、记录命令时间，并将状态改为 Open。 <a href="source.html#bsp-board-h">板级接口</a> · <a href="source.html#app-motor-app-c-l150">状态发布</a></li>
 </ol>
 <p>电脑再发目标时，<code>MotorApp_AcceptCommand</code> 只接受新鲜、状态匹配且无故障的命令。应用一次性写入 <code>reference</code>，按配置限制电角速度与 Vq，并更新时间。控制程序每拍读取完整的最新目标。本例电脑脚本以 50 Hz 更新给定，板上每 50 μs 算一次。 <a href="source.html#app-motor-app-c-l306">目标接收与限制</a></p>
-<p>LAB1 和 LAB2 用的是同一套逆 Park 与 SVPWM。LAB1 每秒推进一圈电角，用固定 <code>Vd=0 V</code>、<code>Vq=1 V</code> 和名义母线 24 V 算 duty，结果交给观察接口。LAB2 的 <code>APP_OPEN</code> 使用可调电角速度、Vq 和实际采样的母线，结果交给运行接口。回到自己的模型，先对照这两条路径分别使用了哪些输入，再跟读它们的硬件落点。 <a href="source.html#app-motor-app-c-l498">LAB1 与 Open 分支</a></p>
-<p><span id="stm32-部署示例"></span></p>
-<h2 id="stm32-实现">STM32 实现</h2>
+<p>LAB1 和 LAB2 用的是同一套逆 Park 与 SVPWM。LAB1 每秒推进一圈电角，用固定 <code>Vd=0 V</code>、<code>Vq=1 V</code> 和名义母线 24 V 算 duty，结果交给观察接口。LAB2 的 <code>APP_OPEN</code> 使用可调电角速度、Vq 和实际采样的母线，结果交给运行接口。<a href="source.html#app-motor-app-c-l498">LAB1 与 Open 分支</a></p>
+<h2 id="21-bsp-与-cubemx-领读">2.1 BSP 与 CubeMX 领读</h2>
+<p><span id="stm32-部署示例"></span>
+<span id="stm32-实现"></span></p>
 <h3 id="追踪示例板的启桥检查">追踪示例板的启桥检查</h3>
-<p>找到三个板级接口，读清楚应用什么时候可以送出功率输出。</p>
+<p>板级把驱动就绪、故障输入和关断提供为三个接口。PD4 和 PD5 的配置来自 GPIO 初始化，TIM1 输出行为见 3.2。 <a href="reference.html#示例配置">示例配置</a></p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -142,6 +147,7 @@ if (!Board_EnableDriver())
     MotorApp_FaultIsr(APP_FAULT_SAMPLE);
 </code></pre>
 <p>状态仍在运行且 <code>ok</code> 为真时，<code>Board_ApplyDutyIsr</code> 检查占空比、驱动是否启用、故障输入和定时器提交窗口。<code>Board_DriverFault</code> 读板级故障输入。板级返回成功，应用接着记录诊断。计算失败时，<code>!ok</code> 已经为真，右边的提交函数不会调用。提交失败也走同一个故障处理，经 <code>Board_StopIsr</code> 关闭 PWM 总输出和驱动使能。母线异常、运行中编码器失效、过流以及运动命令超时也会关桥。该工程的通信超时阈值为 100 ms。 <a href="source.html#bsp-board-c-l118">提交检查</a> · <a href="source.html#bsp-board-c-l69">关断入口</a> · <a href="source.html#app-motor-app-c-l479">本拍的保护判断</a></p>
+<h2 id="22-lab-实机操作与验收">2.2 LAB 实机操作与验收</h2>
 <h3 id="构建-lab2-并找到本次-elf">构建 LAB2 并找到本次 ELF</h3>
 <p>以下构建、下载和 CAN 步骤使用固定标签 <code>chapter-3</code>。 <a href="https://github.com/pjzjwzx/foc-stm32-example">示例工程</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/archive/refs/tags/chapter-3.zip">下载 chapter-3 ZIP</a></p>
 <p>本节以 STM32H743 示例板、CubeIDE 2.0.0 和 ST-LINK 为例。用其他板时，先按板卡资料核对下载接口、供电和驱动允许条件。工程尚未导入时，先按 <a href="00-project.html#软件操作手册">3.1 软件操作手册</a> 打开已解压的工程。只切换实验阶段时直接构建现有工程。</p>
@@ -210,17 +216,21 @@ if (!Board_EnableDriver())
 <li><strong>实际转向与退出。</strong> 记录轴是否跟随、转向、限流电源读数和停止回读。低电压时可能出现给定角和 duty 都正常而电机没有克服静摩擦的情况。先区分模型给定、MCU 输出、驱动使能和机械响应，再决定检查哪一环。停机确认后断开功率，再做接线或设置调整。</li>
 </ul>
 <p>本节结束时保留同一条轨迹的模型电角、duty 与实物观察记录。没有板时，在记录里区分模型预测与待测项。后续会沿这次开环采集的电流和角度，查它们怎样从板上读数变成模型能用的反馈。 <a href="03-sensors.html">下一节 3.4 电流与角度传感器</a></p>
-<div class="pager"><a href="01-pwm-svpwm.html"><small>上一页</small>3.2 PWM 与 SVPWM</a><a href="03-sensors.html"><small>下一页</small>3.4 电流与角度传感器</a></div>
+<div class="pager"><a href="01-pwm-svpwm.html"><small>上一页</small>3.2 逆 Park、SVPWM 与 PWM</a><a href="03-sensors.html"><small>下一页</small>3.4 电流与角度传感器</a></div>
 </main>
 <aside class="outline" aria-label="本页目录"><div class="nav-heading">本页目录</div><div class="toc">
 <ul>
-<li><a href="#通用部署">通用部署</a><ul>
+<li><a href="#11-工程问题与通路">1.1 工程问题与通路</a></li>
+<li><a href="#12-高层代码领读">1.2 高层代码领读</a><ul>
 <li><a href="#将模型里的给定电角接到-svpwm">将模型里的给定电角接到 SVPWM</a></li>
 <li><a href="#从停机到允许开环">从停机到允许开环</a></li>
 </ul>
 </li>
-<li><a href="#stm32-实现">STM32 实现</a><ul>
+<li><a href="#21-bsp-与-cubemx-领读">2.1 BSP 与 CubeMX 领读</a><ul>
 <li><a href="#追踪示例板的启桥检查">追踪示例板的启桥检查</a></li>
+</ul>
+</li>
+<li><a href="#22-lab-实机操作与验收">2.2 LAB 实机操作与验收</a><ul>
 <li><a href="#构建-lab2-并找到本次-elf">构建 LAB2 并找到本次 ELF</a></li>
 <li><a href="#保持功率断开用-swd-下载并运行">保持功率断开，用 SWD 下载并运行</a></li>
 <li><a href="#最小-can-启停卡">最小 CAN 启停卡</a></li>

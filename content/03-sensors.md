@@ -8,10 +8,7 @@
 
 在 Simulink 里，可以直接从电机模型拿到安培值。实物里，电流流过采样电阻，在电阻两端产生一个小电压。放大器把它放大并加上偏置，ADC 把电压变成计数。电流为零时，放大器和 ADC 仍可能给出一个非零计数，这个基线要先减掉。
 
-~~~text
-相电流 → 采样电阻两端电压 → 放大与偏置 → ADC 计数
-      → 减零电流基线 → 换算为安培并统一相序与正方向
-~~~
+[![电流经采样电阻、放大和 ADC 后换算成安培。编码器帧经校验与方向统一后，交付机械角、时间戳和有效标志。](../docs/assets/chapter-3/03-sensors.png)](../docs/assets/chapter-3/03-sensors.png){: .diagram}
 
 计算时，计数差乘上每计数对应的伏数，再除以放大倍数和采样电阻。举个只用于理解换算的例子，若采样电阻为 1 mΩ，放大倍数为 50，1 A 对应放大后的 50 mV 变化。在本例板上，增益和刻度取自 2.1 的实际配置。 [ST 电机电流采样示例](https://www.st.com/resource/en/user_manual/um1052-stm32f-pmsm-singledual-foc-sdk-v43-stmicroelectronics.pdf)
 

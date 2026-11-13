@@ -8,19 +8,11 @@
 
 开环时，应用自己推进给定电角。每拍按 `ωe × Ts` 增加角度，固定的 dq 电压请求随角度旋转，逆 Park 和 SVPWM 将它交给桥臂。编码器仍参与健康检查，驱动电压使用的是给定角。
 
-**执行示意**。阶段仍是 LAB2，箭头只表示运行状态的改变。
+[![给定电角按电角速度逐拍累加并跨圈折回。固定的 dq 电压经逆 Park 后成为定子坐标系内旋转的电压矢量。](../docs/assets/chapter-3/02-open-loop-01.png)](../docs/assets/chapter-3/02-open-loop-01.png){: .diagram}
 
-~~~text
-上电 → 采集电流零偏 → Disabled（2）
-                          │
-                   开环请求与检查通过
-                          ↓
-                       Open（3） ← 持续接受电角速度和 Vq
-                          │
-                          ├── 收到停机请求 → Disabled（2）
-                          └── 运行故障 → Fault（8）
-                                         └── 排除原因并明确清故障 → Disabled（2）
-~~~
+LAB2 上电先采集零偏。开环请求通过检查并启桥后，应用进入 Open 并持续接收电角速度和 Vq 给定。
+
+[![LAB2 开环状态图。零偏采完进入 Disabled，开环检查通过后进入 Open。正常停机回到 Disabled，运行故障关桥并进入 Fault，明确清故障后回到 Disabled。](../docs/assets/chapter-3/02-open-loop-02.png)](../docs/assets/chapter-3/02-open-loop-02.png){: .diagram}
 
 运行请求、驱动就绪和目标更新各有自己的时机。正常停机返回 Disabled，运行故障走关断路径并进入 Fault。
 

@@ -228,6 +228,14 @@ details.mobile-nav { display: none; }
 .article blockquote > :first-child { margin-block-start: 0; }
 .article blockquote > :last-child { margin-block-end: 0; }
 .article :where(img, svg, video) { max-inline-size: 100%; block-size: auto; }
+.article a.diagram {
+  display: block;
+  margin-block: 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: .4rem;
+  cursor: zoom-in;
+}
+.article a.diagram img { display: block; inline-size: 100%; border-radius: inherit; }
 .article figure { margin: 1.2rem 0; }
 .article figcaption { color: var(--muted); font-size: .85rem; }
 

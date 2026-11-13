@@ -77,6 +77,8 @@ def render(name):
     assert top.startswith('# ')
     title = top[2:].strip()
     text = re.sub(r'(\]\()([a-z0-9-]+)\.md(?=[)#])', r'\1\2.html', text)
+    # Markdown links resolve from content/, while the generated pages are in docs/.
+    text = re.sub(r'(\]\()\.\./docs/(assets/chapter-3/[a-z0-9-]+\.png)(?=\))', r'\1\2', text)
     md = markdown.Markdown(extensions=['extra', 'toc', 'sane_lists'],
                            extension_configs={'toc': {'slugify': slug, 'toc_depth': '2-3'}})
     body = md.convert(text)

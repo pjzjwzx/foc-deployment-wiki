@@ -35,3 +35,24 @@
 
     python -m pip install -r requirements.txt
     python build.py
+
+### 更新第三章配图
+
+在 PowerPoint 打开[配图源文件](chapter-3-figures.pptx)。修改相应页后，使用「文件 → 另存为」选择 PNG，再选「仅当前幻灯片」。将导出的文件按下表命名，覆盖 `docs/assets/chapter-3/` 下的同名图片。初版导出尺寸为 1920 × 1080。只替换图片时可以直接刷新本地网页，调整正文或图的引用时再运行 `python build.py`。
+
+| PPT 页码 | 小节 | PNG 文件名 |
+|---:|---|---|
+| 1 | 3.1 工程启动 | `00-project.png` |
+| 2 | 3.2 PWM 输出 | `01-pwm-svpwm.png` |
+| 3 | 3.3 给定电角 | `02-open-loop-01.png` |
+| 4 | 3.3 开环启停 | `02-open-loop-02.png` |
+| 5 | 3.4 电流和角度测量 | `03-sensors.png` |
+| 6 | 3.5 两种控制启动方式 | `04-sampling-zero-01.png` |
+| 7 | 3.5 H743 载波与锁存 | `04-sampling-zero-02.png` |
+| 8 | 3.6 电零点与 Id/Iq | `05-transforms.png` |
+| 9 | 3.7 电流闭环 | `06-current-pi.png` |
+| 10 | 3.8 固件分层与关断 | `06a-software-architecture.png` |
+| 11 | 3.9 速度估计与调度 | `07-speed.png` |
+| 12 | 3.10 CAN MIT | `08-can-mit.png` |
+| 13 | 3.11 正反扫生成 LUT | `09-lut-01.png` |
+| 14 | 3.11 LUT 跨圈插值 | `09-lut-02.png` |

@@ -122,6 +122,7 @@ if (!Foc_Measure(&amp;foc, phase, angle))
 </tbody>
 </table></div>
 <p><a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/stm32h7xx_it.c#L261-L343">两条 IRQ 入口</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L298-L323">BSP 注入完成回调</a> · <a href="https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L104-L135">提交检查与写入</a></p>
+<p>读这张表时，先判断这帧能否进入计算，再判断计算结果能否提交。假设三相都报到后，回调读到的 <code>CNT</code> 已对应约 <code>13 μs</code>，这帧在采样窗口检查时就被拒绝，应用控制函数不会收到它。即使估计能在 <code>19 μs</code> 写入 CCR，本拍也走不到那一步。若同一个检查发生在上数的 <code>10 μs</code> 处，距 <code>23 μs</code> 的提交检查约有 <code>13 μs</code>，留给回调余下工作、应用计算及走到提交检查前的开销。<code>25 μs</code> 是定时器锁存的位置。这些数字来自配置换算，回调与控制实际耗时仍需实测。</p>
 <p><strong>源码摘录</strong>。完成回调先记录是哪路 ADC 报到。</p>
 <pre><code class="language-c">uint8_t bit = h == &amp;hadc1 ? 1U : h == &amp;hadc2 ? 2U : 4U;
 if (adc_done_mask &amp; bit)

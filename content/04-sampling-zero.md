@@ -80,6 +80,8 @@ if (!Foc_Measure(&foc, phase, angle))
 
 [两条 IRQ 入口](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/Core/Src/stm32h7xx_it.c#L261-L343) · [BSP 注入完成回调](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L298-L323) · [提交检查与写入](https://github.com/pjzjwzx/foc-stm32-example/blob/chapter-3/bsp/board.c#L104-L135)
 
+读这张表时，先判断这帧能否进入计算，再判断计算结果能否提交。假设三相都报到后，回调读到的 `CNT` 已对应约 `13 μs`，这帧在采样窗口检查时就被拒绝，应用控制函数不会收到它。即使估计能在 `19 μs` 写入 CCR，本拍也走不到那一步。若同一个检查发生在上数的 `10 μs` 处，距 `23 μs` 的提交检查约有 `13 μs`，留给回调余下工作、应用计算及走到提交检查前的开销。`25 μs` 是定时器锁存的位置。这些数字来自配置换算，回调与控制实际耗时仍需实测。
+
 **源码摘录**。完成回调先记录是哪路 ADC 报到。
 
 ```c

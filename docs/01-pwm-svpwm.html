@@ -58,7 +58,8 @@ return true;
 <li>每相再除以 <code>bus_voltage_V</code>，把电压变成比例。加上 0.5 后写入 <code>duty[i]</code>，<code>Clamp</code> 把它限制到 0～1。三相算完，<code>return true</code> 回到调用处。 <a href="source.html#control-foc-c-l125">调制源码</a></li>
 </ol>
 <h4 id="为什么这和你熟悉的扇区法能对上">为什么这和你熟悉的扇区法能对上</h4>
-<p>用 <strong>H、M、L</strong> 表示本拍 duty 从大到小的三个相，字母随矢量角度改变。对同一条中心对齐载波，较大的 duty 覆盖较小的 duty。在线性调制范围内、忽略死区与计数取整，按 H/M/L 的顺序看上桥状态，会出现以下四种组合。</p>
+<p>第一次接触扇区法时，可以只用下面的表做纸笔练习。用 <strong>H、M、L</strong> 表示本拍 duty 从大到小的三个相，字母随矢量角度改变。三位开关状态依次对应 H、M、L，<code>1</code> 表示上桥导通。在理想逆变器中，<code>000</code> 和 <code>111</code> 都让三相端子接到同一个电位，任意两相之间的电压都是零，所以叫零矢量。</p>
+<p>对同一条中心对齐载波，较大的 duty 覆盖较小的 duty。在线性调制范围内、忽略死区与计数取整，按 H/M/L 的顺序看上桥状态，会出现以下四种组合。</p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -91,6 +92,7 @@ return true;
 </tbody>
 </table></div>
 <p><code>100</code> 和 <code>110</code> 的身份由 H、M、L 当前分别是哪一相决定。这就是扇区法要找的两个相邻有效矢量。它们的作用时间等于上表的比例乘以 PWM 周期。min/max 居中还令 <code>dH+dL=1</code>，于是两种零矢量等分剩余时间。采用同一归一化和等分零矢量的对称扇区法时，理想 duty 可以逐相对上。工程只需求三相投影的最大、最小值，比较器会根据三个门槛自然形成相应的开关顺序，省去 <code>atan2</code>、显式判扇区和查表。</p>
+<p>例如某一拍的 U、V、W 占空比是 <code>(0.70, 0.30, 0.60)</code>，于是 H=U、M=W、L=V。按表从 <code>000</code> 到 <code>111</code> 依次得到 <code>0.30、0.10、0.30、0.30</code>，乘以 <code>50 μs</code> 是 <code>15、5、15、15 μs</code>。四种状态合计一拍，H 相导通的三行合计 <code>35 μs</code>，正好是 <code>0.70 × 50 μs</code>。这里加的是各状态在整拍中出现的总时间。</p>
 <p><span id="在模型里核对占空比"></span></p>
 <h3 id="从-dq-输入算出三相占空比">从 dq 输入算出三相占空比</h3>
 <p>取 <code>Vd=0 V</code>、<code>Vq=−2 V</code>、电角 <code>θe=π/2</code> 和 <code>Vbus=12 V</code>。这个矢量在示例限幅内。逆 Park 得到 <code>(vα, vβ)=(2, 0) V</code>，投影后三相参考为 <code>(2, −1, −1) V</code>。减去共同的 <code>0.5 V</code>，再除以母线电压并加 0.5，得到 <code>duty=(0.625, 0.375, 0.375)</code>。U 与 V 相的 duty 差乘以 12 V 等于 3 V，与投影后的线电压差一致。2.1 沿用同一组数值计算比较值。</p>
@@ -124,6 +126,7 @@ OCxREF      无效  ────────┘ 有效 ────────�
 </code></pre>
 <p><code>duty[i]</code> 是第 <code>i</code> 相的占空比。这里的 <code>TIM1-&gt;ARR</code> 表示访问 TIM1 寄存器中的计数上限。忽略死区与整数截断时，PWM2 在每半程的有效区间为 <code>ARR−CCR</code>，所以比例是 <code>1−CCR/ARR</code>。反过来求 CCR，就得到源码里的 <code>(1-duty)×ARR</code>。结果转成整数后依次写进三路 CCR。换 PWM 模式或输出极性时，要按新的比较逻辑重新确认这一映射。 <a href="source.html#bsp-board-c-l104">比较值写入</a></p>
 <p>同一组 <code>duty=(0.625, 0.375, 0.375)</code> 在本例 <code>ARR=6000</code> 时得到 <code>(CCR1, CCR2, CCR3)=(2250, 3750, 3750)</code>。U 相门槛较低，在同一载波上比 V、W 相更早进入有效区间。</p>
+<p>换一个输入手算。当 <code>duty=0.34375</code> 时，浮点中间值是 <code>(1−0.34375)×6000 = 3937.5</code>，转成 <code>uint32_t</code> 时舍掉小数，写入 <code>3937</code>。有些十进制小数在 <code>float</code> 里只能近似表示，中间值在整数边界附近时，寄存器值可能和十进制手算相差一个计数。用写入的 CCR 可以反算定时器内部的理想有效比例 <code>1−CCR/ARR</code>。和实际引脚波形对照时，再核对输出极性、使能和死区。</p>
 <p><span id="在-cubemx-配好-pwm"></span></p>
 <h3 id="cubemx-参数怎样进入初始化代码">CubeMX 参数怎样进入初始化代码</h3>
 <p>这里对照已保存的 <code>.ioc</code> 参数和 <strong>STM32H743 的 TIM1</strong> 生成代码。换一款 STM32 时，先从目标芯片和板卡的引脚表找能输出所需 PWM 的定时器，核对它有多少组互补通道、是否支持死区、怎样触发 ADC。引脚位置、时钟倍频规则和触发路由都从目标工程重新确认。 <a href="00-project.html#软件操作手册">打开工程的方法</a> · <a href="reference.html#示例配置">CubeMX 示例参数摘录</a> · <a href="https://www.st.com/resource/en/application_note/an4013-stm32-crossseries-timer-overview-stmicroelectronics.pdf">ST 跨系列定时器概览 AN4013</a></p>
